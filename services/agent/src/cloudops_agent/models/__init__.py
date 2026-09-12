@@ -7,11 +7,23 @@ from cloudops_agent.models.incident import (
     IncidentType,
     Observation,
 )
+from cloudops_agent.models.remediation import (
+    Hypothesis,
+    RemediationOutcome,
+    RemediationPlan,
+    RemediationResult,
+    RiskLevel,
+)
 
 __all__ = [
+    "Hypothesis",
     "Incident",
     "IncidentSeverity",
     "IncidentStatus",
     "IncidentType",
     "Observation",
+    "RemediationOutcome",
+    "RemediationPlan",
+    "RemediationResult",
+    "RiskLevel",
 ]

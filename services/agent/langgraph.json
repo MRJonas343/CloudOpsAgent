@@ -1,0 +1,7 @@
+{
+  "dependencies": ["."],
+  "graphs": {
+    "agent": "./src/cloudops_agent/graph/model/connection.py:agent"
+  },
+  "env": "../../.env"
+}

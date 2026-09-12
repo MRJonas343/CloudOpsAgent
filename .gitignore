@@ -37,3 +37,6 @@ Thumbs.db
 
 # CodeGraph index (local, machine-specific)
 .codegraph/
+
+# LangGraph CLI local state
+.langgraph_api/

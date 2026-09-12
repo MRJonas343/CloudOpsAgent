@@ -11,6 +11,7 @@ from contextlib import asynccontextmanager, suppress
 
 from fastapi import FastAPI
 
+from cloudops_agent.api import router as incidents_router
 from cloudops_agent.config import Settings
 from cloudops_agent.logging import configure_logging
 from cloudops_agent.monitoring.app_client import AppClient
@@ -50,6 +51,8 @@ def create_app(
             await app_client.aclose()
 
     app = FastAPI(title="CloudOpsAgent Agent", version="0.2.0", lifespan=lifespan)
+    app.state.incident_store = incident_store
+    app.include_router(incidents_router)
 
     @app.get("/health")
     async def health() -> dict[str, str]:

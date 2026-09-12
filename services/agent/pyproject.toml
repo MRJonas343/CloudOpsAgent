@@ -9,10 +9,14 @@ dependencies = [
     "pydantic>=2.10",
     "pydantic-settings>=2.7",
     "httpx>=0.28",
+    "langchain>=1.4.0",
+    "langgraph>=1.2.11",
+    "langchain-aws>=1.7.6",
 ]
 
 [dependency-groups]
 dev = [
+    "langgraph-cli[inmem]>=0.4.31",
     "pytest>=8.3",
     "pytest-asyncio>=0.25",
     "ruff>=0.9",
