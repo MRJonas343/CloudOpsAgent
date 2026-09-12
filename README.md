@@ -2,7 +2,7 @@
 
 A safe, auditable incident-response control plane for simulated applications today and AWS-backed operations later. An operational signal becomes evidence, a diagnosis, an approved remediation plan, and a verified result without giving an LLM unrestricted authority.
 
-> **Status:** the `app` service implements Phase 2 (health, metrics, orders, and bounded fault simulations). The `agent` service is still the Phase 1 health-only skeleton; monitoring, the incident API, and the graph are not implemented yet. See [`docs/IMPLEMENTATION_PLAN.md`](docs/IMPLEMENTATION_PLAN.md).
+> **Status:** the `app` service implements Phase 2 (health, metrics, orders, and bounded fault simulations). The `agent` service implements Phase 3: it polls `app` over HTTP, detects the two MVP incidents, and stores typed incident payloads in memory. The incident API and graph are not implemented yet. See [`docs/IMPLEMENTATION_PLAN.md`](docs/IMPLEMENTATION_PLAN.md).
 
 ## Quick start
 
@@ -69,6 +69,17 @@ curl http://localhost:8001/metrics
 curl -X POST http://localhost:8001/simulate/reset
 ```
 
+## Monitoring module
+
+The monitoring module is internal to the `agent` service (not a separate container). Every `AGENT_POLL_INTERVAL_SECONDS` (default `10`) it polls `app` `GET /health` and `GET /metrics` via HTTP, applies deterministic rules, and stores a typed `Incident` (`INC-0001`, `INC-0002`, ...) in memory. It only creates and logs incidents; it does not trigger the LangGraph workflow yet.
+
+| Detector | Rule | Severity |
+|---|---|---|
+| `unhealthy_application` | `/health` is not `ok`, or `metrics.status == "unhealthy"` | `high` |
+| `traffic_spike` | `requests_per_second >= AGENT_TRAFFIC_SPIKE_RPS_THRESHOLD` (default `20.0`) | `medium` |
+
+The unhealthy condition takes precedence when both could fire. Baseline metrics produce no incident. Repeating an active condition does not create a duplicate, and an `app` transport error logs a warning and skips the cycle. Disable the loop with `AGENT_MONITORING_ENABLED=false`; tune the request timeout with `AGENT_APP_REQUEST_TIMEOUT_SECONDS` (default `5.0`).
+
 ## Project structure
 
 ```text
@@ -120,7 +131,7 @@ Each target is a thin wrapper; run the underlying command directly if you prefer
 
 ## Roadmap
 
-- **Phase 2 (this state):** deterministic `app` endpoints (`/health`, `/metrics`, `/api/orders`) and bounded fault simulations (`unhealthy_application`, `traffic_spike`).
+- **Phase 3 (this state):** internal monitoring module in `agent` polls `app`, detects `unhealthy_application` and `traffic_spike`, and stores typed incidents in memory.
 - **MVP:** local `app` + `agent` flow, monitoring detection, typed incident API, deterministic LangGraph skeleton, human approval, first safe local remediation, verification loop, 2 scenarios.
 - **V1:** read-only AWS tools, Terraform infrastructure and `terraform_validate()`/`terraform_plan()` (plan + explanation only, no apply), CloudWatch evidence, IAM hardening.
 - **V2:** SQLite persistence, the remaining 3 scenarios, measured evaluation, CI/CD.

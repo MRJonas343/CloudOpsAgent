@@ -1,1 +1,17 @@
-"""Typed Pydantic models for incidents, observations, plans, and results. Wired in Phase 4."""
+"""Typed Pydantic models for incidents and observations."""
+
+from cloudops_agent.models.incident import (
+    Incident,
+    IncidentSeverity,
+    IncidentStatus,
+    IncidentType,
+    Observation,
+)
+
+__all__ = [
+    "Incident",
+    "IncidentSeverity",
+    "IncidentStatus",
+    "IncidentType",
+    "Observation",
+]

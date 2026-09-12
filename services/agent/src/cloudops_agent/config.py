@@ -11,6 +11,9 @@ class Settings(BaseSettings):
     app_base_url: str = "http://app:8001"
     poll_interval_seconds: int = 10
     llm_provider: str = "azure_foundry"
+    monitoring_enabled: bool = True
+    traffic_spike_rps_threshold: float = 20.0
+    app_request_timeout_seconds: float = 5.0
 
 
 settings = Settings()
