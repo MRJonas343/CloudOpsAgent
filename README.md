@@ -199,4 +199,8 @@ Each target is a thin wrapper; run the underlying command directly if you prefer
 
 Persistence is in-memory for V1. The agent never executes `terraform apply` or `terraform destroy`.
 
+## License
+
+[MIT](LICENSE) © 2026 Jonas
+
 uv run --directory services/agent langgraph dev
