@@ -11,6 +11,7 @@ WORKDIR /app
 
 COPY pyproject.toml uv.lock ./
 COPY src ./src
+COPY healthcheck.py ./
 
 RUN uv sync --frozen --no-dev
 

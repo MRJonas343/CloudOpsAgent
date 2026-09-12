@@ -9,9 +9,11 @@ A safe, auditable incident-response control plane for simulated applications tod
 Prerequisites: Docker + Docker Compose, [`uv`](https://docs.astral.sh/uv/), GNU Make, and Python 3.12 (uv can install it automatically).
 
 ```bash
-make install   # sync each service's dependencies with uv
-make up        # start the two-service Compose topology
+make install                    # sync each service's dependencies with uv
+python scripts/setup_local.py   # start the topology (docker compose up; add -d for detached)
 ```
+
+`make up` runs the same `docker compose up -d` if you prefer the Makefile target.
 
 Verify both services:
 
