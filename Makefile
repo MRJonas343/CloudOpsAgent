@@ -11,6 +11,7 @@ format:
 	uv run --directory services/agent ruff format .
 
 test:
+	uv run --directory services/app pytest
 	uv run --directory services/agent pytest
 
 up:

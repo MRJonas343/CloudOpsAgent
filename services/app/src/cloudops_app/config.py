@@ -8,6 +8,9 @@ class Settings(BaseSettings):
 
     service_port: int = 8001
     log_level: str = "INFO"
+    simulation_enabled: bool = True
+    simulation_max_duration_seconds: int = 300
+    simulation_default_duration_seconds: int = 30
 
 
 settings = Settings()

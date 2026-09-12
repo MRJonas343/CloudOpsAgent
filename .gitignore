@@ -34,3 +34,6 @@ Thumbs.db
 
 # Local agent tooling cache (auto-generated)
 .atl/
+
+# CodeGraph index (local, machine-specific)
+.codegraph/
