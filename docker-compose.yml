@@ -1,0 +1,56 @@
+name: cloudopsagent
+
+services:
+  app:
+    build:
+      context: ./services/app
+    image: cloudopsagent/app:local
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      APP_SERVICE_PORT: ${APP_SERVICE_PORT:-8001}
+      APP_LOG_LEVEL: ${APP_LOG_LEVEL:-INFO}
+    ports:
+      - "${APP_SERVICE_PORT:-8001}:8001"
+    networks:
+      - cloudops
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request,sys; sys.exit(0) if urllib.request.urlopen('http://localhost:8001/health').status==200 else sys.exit(1)"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    restart: unless-stopped
+
+  agent:
+    build:
+      context: ./services/agent
+    image: cloudopsagent/agent:local
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      AGENT_SERVICE_PORT: ${AGENT_SERVICE_PORT:-8000}
+      AGENT_LOG_LEVEL: ${AGENT_LOG_LEVEL:-INFO}
+      AGENT_APP_BASE_URL: ${AGENT_APP_BASE_URL:-http://app:8001}
+      AGENT_POLL_INTERVAL_SECONDS: ${AGENT_POLL_INTERVAL_SECONDS:-10}
+      AGENT_LLM_PROVIDER: ${AGENT_LLM_PROVIDER:-azure_foundry}
+    ports:
+      - "${AGENT_SERVICE_PORT:-8000}:8000"
+    depends_on:
+      app:
+        condition: service_healthy
+    networks:
+      - cloudops
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request,sys; sys.exit(0) if urllib.request.urlopen('http://localhost:8000/health').status==200 else sys.exit(1)"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    restart: unless-stopped
+
+networks:
+  cloudops:
+    driver: bridge

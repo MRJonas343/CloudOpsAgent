@@ -1,0 +1,1 @@
+"""CloudOpsAgent simulated application package."""
