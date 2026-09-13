@@ -8,16 +8,21 @@ import time
 from collections.abc import Callable
 from dataclasses import dataclass
 
-from fastapi import FastAPI, HTTPException, Response
+from fastapi import FastAPI, HTTPException, Query, Response
 
 from cloudops_app.config import Settings
 from cloudops_app.logging import configure_logging
+from cloudops_app.logs import LogEntry, LogStore
 from cloudops_app.metrics import compute_metrics
 from cloudops_app.models import (
     HealthResponse,
+    LogEntryModel,
+    LogListResponse,
     MetricSnapshot,
     Order,
     OrderCreate,
+    ScaleRequest,
+    ScaleState,
     SimulationRequest,
     SimulationStatus,
 )
@@ -51,17 +56,38 @@ def create_app(
         clock=time.monotonic if clock is None else clock,
     )
     counters = RequestCounters()
+    logs = LogStore(max_entries=settings.max_log_entries, service="app")
+    replicas = max(settings.min_replicas, min(settings.baseline_replicas, settings.max_replicas))
     orders: list[Order] = [order.model_copy() for order in SAMPLE_ORDERS]
     next_order_id = max(order.id for order in orders) + 1
 
     app = FastAPI(title="CloudOpsAgent Simulated Application", version="0.2.0")
 
     @app.middleware("http")
-    async def count_requests(request, call_next):
+    async def observe_requests(request, call_next):
+        started = time.perf_counter()
         response = await call_next(request)
+        duration_ms = round((time.perf_counter() - started) * 1000, 2)
         counters.request_count += 1
         if response.status_code >= 500:
             counters.error_count += 1
+
+        fault = controller.active_mode()
+        if response.status_code >= 500:
+            level = "error"
+        elif response.status_code >= 400 or fault is not None:
+            level = "warning"
+        else:
+            level = "info"
+        suffix = f" (fault active: {fault.value})" if fault is not None else ""
+        logs.record(
+            level,
+            f"{request.method} {request.url.path} -> {response.status_code} in {duration_ms}ms{suffix}",
+            path=request.url.path,
+            method=request.method,
+            status=response.status_code,
+            duration_ms=duration_ms,
+        )
         return response
 
     def build_status() -> SimulationStatus:
@@ -96,8 +122,57 @@ def create_app(
             controller.active_mode(),
             counters.request_count,
             counters.error_count,
+            replicas=replicas,
+            baseline_replicas=settings.baseline_replicas,
         )
         return MetricSnapshot(**payload)
+
+    def build_log_response(entries: list[LogEntry], effective: int) -> LogListResponse:
+        return LogListResponse(
+            service="app",
+            count=len(entries),
+            limit=effective,
+            entries=[
+                LogEntryModel.model_validate(entry, from_attributes=True) for entry in entries
+            ],
+        )
+
+    @app.get("/logs", response_model=LogListResponse)
+    async def list_logs(limit: int = Query(default=100, ge=1)) -> LogListResponse:
+        effective = min(limit, logs.max_entries)
+        return build_log_response(logs.recent(effective), effective)
+
+    @app.get("/errors", response_model=LogListResponse)
+    async def list_errors(limit: int = Query(default=100, ge=1)) -> LogListResponse:
+        effective = min(limit, logs.max_entries)
+        return build_log_response(logs.errors(effective), effective)
+
+    def build_scale_state() -> ScaleState:
+        return ScaleState(
+            service="app",
+            replicas=replicas,
+            baseline_replicas=settings.baseline_replicas,
+            min_replicas=settings.min_replicas,
+            max_replicas=settings.max_replicas,
+        )
+
+    @app.get("/scale", response_model=ScaleState)
+    async def get_scale() -> ScaleState:
+        return build_scale_state()
+
+    @app.post("/scale", response_model=ScaleState)
+    async def set_scale(body: ScaleRequest) -> ScaleState:
+        nonlocal replicas
+        clamped = max(settings.min_replicas, min(body.replicas, settings.max_replicas))
+        if clamped != body.replicas:
+            logs.record(
+                "warning",
+                f"scale request {body.replicas} clamped to {clamped} "
+                f"[{settings.min_replicas}, {settings.max_replicas}]",
+            )
+        replicas = clamped
+        logs.record("info", f"replica count set to {replicas}")
+        return build_scale_state()
 
     @app.get("/api/orders", response_model=list[Order])
     async def list_orders() -> list[Order]:
@@ -122,6 +197,7 @@ def create_app(
     async def reset_simulation() -> SimulationStatus:
         require_simulation_enabled()
         controller.reset()
+        logs.record("info", "simulation reset")
         return build_status()
 
     @app.post("/simulate/{mode}", response_model=SimulationStatus)
@@ -134,7 +210,11 @@ def create_app(
         if fault is None:
             raise HTTPException(status_code=404, detail=f"unknown simulation mode: {mode}")
         duration = body.duration_seconds if body is not None else None
-        controller.activate(fault, duration)
+        state = controller.activate(fault, duration)
+        logs.record(
+            "warning",
+            f"simulation activated: {fault.value} for {state.duration_seconds}s",
+        )
         return build_status()
 
     return app

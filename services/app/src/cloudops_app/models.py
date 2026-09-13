@@ -18,6 +18,37 @@ class MetricSnapshot(BaseModel):
     error_rate: float
     latency_ms_p95: float
     requests_per_second: float
+    replicas: int
+
+
+class LogEntryModel(BaseModel):
+    timestamp: str
+    level: str
+    service: str
+    message: str
+    path: str | None = None
+    method: str | None = None
+    status: int | None = None
+    duration_ms: float | None = None
+
+
+class LogListResponse(BaseModel):
+    service: str
+    count: int
+    limit: int
+    entries: list[LogEntryModel]
+
+
+class ScaleRequest(BaseModel):
+    replicas: int
+
+
+class ScaleState(BaseModel):
+    service: str
+    replicas: int
+    baseline_replicas: int
+    min_replicas: int
+    max_replicas: int
 
 
 class OrderCreate(BaseModel):

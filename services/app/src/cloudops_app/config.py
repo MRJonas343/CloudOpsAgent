@@ -11,6 +11,10 @@ class Settings(BaseSettings):
     simulation_enabled: bool = True
     simulation_max_duration_seconds: int = 300
     simulation_default_duration_seconds: int = 30
+    max_log_entries: int = 500
+    baseline_replicas: int = 2
+    min_replicas: int = 1
+    max_replicas: int = 10
 
 
 settings = Settings()
