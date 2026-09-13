@@ -120,6 +120,22 @@ curl http://localhost:8000/incidents/INC-0001
 
 The API is unauthenticated and in-memory only; authentication and durable persistence are explicitly out of scope for the MVP.
 
+## Tool layer
+
+The agent reaches the outside world only through the registered tool boundary (`cloudops_agent.tools`). Nodes call `registry.invoke(name, ...)`; the registry is **deny-by-default** (an unregistered tool name never executes), validates inputs, enforces a per-tool timeout, and emits one structured audit record per call (`cloudops_agent.audit`: tool, risk, read-only flag, input summary, outcome, duration).
+
+Registered read-only tools (Risk 0), all backed by the `app` HTTP API:
+
+| Tool | Reads | Returns |
+|---|---|---|
+| `get_app_health` | `GET /health` | status, `ok`, HTTP code, latency (ms) |
+| `get_app_metrics` | `GET /metrics` | the deterministic metric snapshot |
+| `get_app_logs` | `GET /logs?limit=N` | recent log entries (default 20) |
+| `get_recent_errors` | `GET /errors?limit=N` | error-level log entries (default 20) |
+| `get_simulation_status` | `GET /simulate/status` | active fault and remaining seconds |
+
+`collect_context` calls these tools and turns the results into `Observation` evidence. Mutating tools (e.g. a bounded local remediation) are next: they must declare a non-`read` risk level and pass the approval guardrails before execution.
+
 ## Model connection (AWS Bedrock)
 
 The agent talks to a model through a single module: `cloudops_agent.graph.model.connection`. It builds a `ChatBedrockConverse` client for **Claude Sonnet 4.5** and exposes a minimal `create_agent` graph. The deterministic incident workflow is built on top of `get_model()` in the next phase.

@@ -1,9 +1,10 @@
 """Incident workflow nodes and conditional routers.
 
 The investigation, diagnosis, and planning nodes call the agents declared in
-``agents.yaml`` through :func:`build_agent`. The remaining nodes are still
-placeholders: context collection and execution become real tool calls in later
-phases, and the approval gate becomes a real human interrupt.
+``agents.yaml`` through :func:`build_agent`. ``collect_context`` gathers real
+evidence through the registered read-only tools. The execution and approval
+nodes are still placeholders: execution becomes a guarded mutating tool call and
+the approval gate becomes a real human interrupt in later phases.
 """
 
 from __future__ import annotations
@@ -14,6 +15,7 @@ from typing import Any
 
 from langgraph.graph import END
 
+from cloudops_agent.config import settings
 from cloudops_agent.graph.agents import (
     DiagnosisResult,
     InvestigationResult,
@@ -35,11 +37,15 @@ from cloudops_agent.models import (
     RemediationPlan,
     RemediationResult,
 )
+from cloudops_agent.tools import get_tool_registry
 
 logger = logging.getLogger(__name__)
 
 #: Failed verifications allowed before the workflow stops for manual handling.
 MAX_ATTEMPTS = 3
+
+#: How many recent / error log entries each context-collection call reads.
+_LOG_LIMIT = 20
 
 #: The mock verifier keeps failing until this many attempts are recorded, so one
 #: Verify -> Investigate cycle is always exercised.
@@ -114,28 +120,143 @@ def analyze_incident(state: IncidentState) -> dict[str, Any]:
     }
 
 
+def _failed_observation(
+    tool: str, source: str, metric: str, exc: Exception, now: datetime
+) -> Observation:
+    """Record a tool failure as incomplete evidence instead of inferring success."""
+    return Observation(
+        source=source,
+        summary=f"{tool} failed: {exc}",
+        metric=metric,
+        value=None,
+        observed_at=now,
+    )
+
+
 def collect_context(state: IncidentState) -> dict[str, Any]:
-    """Gather evidence. Placeholder for the registered read-only tools."""
-    logger.info("collect_context incident_id=%s", _incident_of(state).incident_id)
-    return {
-        "observations": [
+    """Gather real evidence through the registered read-only tools.
+
+    Health, metrics, logs, errors, and simulation status are read from the
+    simulated app over HTTP. A tool failure is recorded as an explicit
+    incomplete-evidence observation; it is never treated as success.
+    """
+    incident = _incident_of(state)
+    logger.info("collect_context incident_id=%s", incident.incident_id)
+    registry = get_tool_registry(settings)
+    now = _now()
+    observations: list[Observation] = []
+
+    try:
+        health = registry.invoke("get_app_health")
+        observations.append(
             Observation(
-                source="metrics",
-                summary="cpu_percent is 78.0",
-                metric="cpu_percent",
-                value=78.0,
-                observed_at=_now(),
-            ),
+                source="health",
+                summary=(
+                    f"application health status is '{health['status']}' "
+                    f"(ok={health['ok']}, http {health['status_code']}, {health['latency_ms']}ms)"
+                ),
+                metric="health_status",
+                value=None,
+                observed_at=now,
+            )
+        )
+    except Exception as exc:  # noqa: BLE001 - failures become incomplete evidence
+        observations.append(
+            _failed_observation("get_app_health", "health", "health_status", exc, now)
+        )
+
+    metrics: dict[str, Any] | None = None
+    try:
+        metrics = registry.invoke("get_app_metrics")
+    except Exception as exc:  # noqa: BLE001 - failures become incomplete evidence
+        observations.append(
+            _failed_observation("get_app_metrics", "metrics", "metrics_snapshot", exc, now)
+        )
+
+    if metrics is not None:
+        threshold = settings.traffic_spike_rps_threshold
+        requests_per_second = metrics.get("requests_per_second")
+        if requests_per_second is not None:
+            observations.append(
+                Observation(
+                    source="metrics",
+                    summary=(
+                        f"requests_per_second is {requests_per_second} (threshold {threshold})"
+                    ),
+                    metric="requests_per_second",
+                    value=float(requests_per_second),
+                    threshold=threshold,
+                    observed_at=now,
+                )
+            )
+        for metric_name in ("cpu_percent", "memory_percent", "latency_ms_p95", "error_rate"):
+            value = metrics.get(metric_name)
+            if value is not None:
+                observations.append(
+                    Observation(
+                        source="metrics",
+                        summary=f"{metric_name} is {value}",
+                        metric=metric_name,
+                        value=float(value),
+                        observed_at=now,
+                    )
+                )
+
+    try:
+        logs = registry.invoke("get_app_logs", limit=_LOG_LIMIT)
+        entries = logs.get("entries") or []
+        newest = entries[0].get("message", "(unknown)") if entries else "(none)"
+        observations.append(
             Observation(
-                source="metrics",
-                summary="requests_per_second is 30.0 (threshold 20.0)",
-                metric="requests_per_second",
-                value=30.0,
-                threshold=20.0,
-                observed_at=_now(),
-            ),
-        ]
-    }
+                source="logs",
+                summary=f"{logs.get('count', 0)} recent log entries; newest: {newest}",
+                metric="log_entry_count",
+                value=float(logs.get("count", 0)),
+                observed_at=now,
+            )
+        )
+    except Exception as exc:  # noqa: BLE001 - failures become incomplete evidence
+        observations.append(
+            _failed_observation("get_app_logs", "logs", "log_entry_count", exc, now)
+        )
+
+    try:
+        errors = registry.invoke("get_recent_errors", limit=_LOG_LIMIT)
+        observations.append(
+            Observation(
+                source="logs",
+                summary=f"{errors.get('count', 0)} error-level log entries",
+                metric="error_log_count",
+                value=float(errors.get("count", 0)),
+                observed_at=now,
+            )
+        )
+    except Exception as exc:  # noqa: BLE001 - failures become incomplete evidence
+        observations.append(
+            _failed_observation("get_recent_errors", "logs", "error_log_count", exc, now)
+        )
+
+    try:
+        simulation = registry.invoke("get_simulation_status")
+        mode = simulation.get("mode") or "none"
+        remaining = simulation.get("remaining_seconds")
+        suffix = f" (remaining {remaining:g}s)" if remaining is not None else ""
+        observations.append(
+            Observation(
+                source="simulation",
+                summary=f"active fault '{mode}'{suffix}",
+                metric="active_fault",
+                value=None,
+                observed_at=now,
+            )
+        )
+    except Exception as exc:  # noqa: BLE001 - failures become incomplete evidence
+        observations.append(
+            _failed_observation("get_simulation_status", "simulation", "active_fault", exc, now)
+        )
+
+    logger.info("collect_context observations=%d", len(observations))
+    return {"observations": observations}
 
 
 def investigate(state: IncidentState) -> dict[str, Any]:
