@@ -1,10 +1,12 @@
 """AWS Bedrock model connection for the agent workflow.
 
 Builds a ``ChatBedrockConverse`` client for Claude Sonnet 4.5 and exposes a
-minimal ``create_agent`` graph. The module is importable by ``langgraph dev``
-through the ``agent`` attribute; it also runs a one-shot connection check:
+minimal ``create_agent`` graph used as a one-shot connectivity check:
 
     uv run --directory services/agent python -m cloudops_agent.graph.model.connection
+
+The incident workflow builds its own graph in ``cloudops_agent.graph.build`` on
+top of ``get_model()``.
 
 Claude Sonnet 4.5 is only served through cross-region inference profiles on
 Bedrock, so the model id keeps the ``us.`` prefix. Use ``global.`` for worldwide
@@ -50,13 +52,10 @@ def get_agent(settings: Settings | None = None):
     )
 
 
-# Module-level entry point consumed by ``langgraph dev``.
-agent = get_agent()
-
-
 def main() -> None:
-    """Invoke the agent once to verify the Bedrock connection."""
-    result = agent.invoke(
+    """Invoke a minimal agent once to verify the Bedrock connection."""
+    graph = get_agent()
+    result = graph.invoke(
         {"messages": [{"role": "user", "content": "Reply with exactly: connection ok"}]}
     )
     print(result["messages"][-1].content_blocks)
