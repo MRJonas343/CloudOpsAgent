@@ -24,6 +24,6 @@ The local Compose system is the deterministic development and demonstration surf
 ## Consequences
 
 - The local system stays fully reproducible without cloud credentials.
-- AWS access is opt-in, least-privilege, and mock-testable with `moto`; no LocalStack and no real AWS for testing.
+- AWS access is opt-in and least-privilege, and can be exercised with mocks; no LocalStack and no real AWS.
 - Infrastructure mutations remain human-reviewed plans rather than autonomous applies.
 - The same incident contracts, risk model, and audit trail apply to local and cloud paths.

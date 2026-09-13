@@ -23,7 +23,7 @@ Read [`docs/PROJECT_CONTEXT.md`](../docs/PROJECT_CONTEXT.md) for the north star,
 
 1. Confirm the current phase, dependencies, and out-of-scope items.
 2. Implement only the phase deliverables.
-3. Run the phase tests and collect evidence.
+3. Perform the phase's manual verification and collect recorded evidence.
 4. Record unresolved risks and approval decisions.
 5. Do not advance until the milestone gate passes.
 
@@ -58,13 +58,14 @@ The canonical order is the exact 01-27 sequence in [`docs/IMPLEMENTATION_PLAN.md
 - Never grant an LLM unrestricted shell, AWS, network, filesystem, or Terraform access.
 - Do not fabricate chain-of-thought. Store concise evidence, decisions, tool inputs/outputs, and outcome summaries instead.
 
-## Testing and Evidence
+## Evidence and Verification
 
-- Add unit tests for typed models, monitoring functions, risk classification, guardrails, and state transitions.
-- Add integration tests for Compose service health and the incident API.
-- Use deterministic scenario fixtures. MVP scenarios: unhealthy application and traffic spike. Deferred to V2: high CPU, memory pressure, high error rate.
-- Use `moto` library for mocking AWS SDK calls in tests. No LocalStack, no real AWS for testing.
-- Test both approval and denial paths, tool failure, stale evidence, rollback or no-op behavior, and verification failure.
+- This project does not require automated tests. Phases prove themselves with recorded manual verification: the exact commands a human runs and the observed output.
+- Verify typed models, monitoring functions, risk classification, guardrails, and state transitions by hand and record the observed results.
+- Verify Compose service health and the incident API by hand and record the observed results.
+- Use deterministic scenario fixtures to drive incident flows. MVP scenarios: unhealthy application and traffic spike. Deferred to V2: high CPU, memory pressure, high error rate.
+- Exercise both approval and denial paths, tool failure, stale evidence, rollback or no-op behavior, and verification failure manually; record what you observed.
+- For AWS-facing work without credentials, use mocks or read-only local behavior and record the mock setup and observed output. No LocalStack, no real AWS for verification.
 - Verification after action must check metrics, health, and logs; it may return to investigation.
 - Do not invent evaluation numbers. Report measured results, commands, fixtures, and observed output.
 
@@ -95,7 +96,7 @@ The canonical order is the exact 01-27 sequence in [`docs/IMPLEMENTATION_PLAN.md
 ## Definition of Done
 
 - The requested phase scope is implemented without out-of-scope behavior.
-- Unit, integration, scenario, and safety tests applicable to the phase pass.
+- The phase's manual verification is performed and the exact commands and observed output are recorded.
 - Acceptance evidence is recorded and measured; no evaluation result is fabricated.
 - Approval, IAM, audit, observability, and failure behavior are covered.
 - Documentation and ADRs match the shipped behavior.

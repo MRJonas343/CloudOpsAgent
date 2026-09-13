@@ -25,7 +25,7 @@ def create_app(
     client: AppClient | None = None,
     store: IncidentStore | None = None,
 ) -> FastAPI:
-    """Build the agent app; tests inject ``settings``, a fake ``client``/``store``."""
+    """Build the agent app; ``settings`` and a fake ``client``/``store`` can be injected."""
     settings = settings or Settings()
     configure_logging(settings.log_level, service="agent")
 

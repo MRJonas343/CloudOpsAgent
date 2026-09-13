@@ -58,7 +58,7 @@ CloudOpsAgent control plane <----> Local simulated Python application
 
 ### Simulated Application (Python)
 
-`GET /health`, `GET /metrics`, and `GET /api/orders` are stable local contracts. Controlled failure/load simulation is a test and demo facility, not a general-purpose remote execution endpoint. It must be bounded, authenticated or local-only as appropriate, and resettable. Implemented in Python (FastAPI).
+`GET /health`, `GET /metrics`, and `GET /api/orders` are stable local contracts. Controlled failure/load simulation is a demo and manual-verification facility, not a general-purpose remote execution endpoint. It must be bounded, authenticated or local-only as appropriate, and resettable. Implemented in Python (FastAPI).
 
 ### Monitoring (Internal Module)
 

@@ -13,7 +13,7 @@ MVP includes only 2 scenarios. The remaining 3 are fully specified below but def
 
 ## Common Evidence Contract
 
-Capture the scenario ID, setup command or fixture, timestamps, incident payload, expected and actual tool calls, observations, hypothesis, diagnosis, plan, risk and approval decision, execution result, metrics/health/log verification, cleanup result, and test output. Do not add credentials or personal paths.
+Capture the scenario ID, setup command or fixture, timestamps, incident payload, expected and actual tool calls, observations, hypothesis, diagnosis, plan, risk and approval decision, execution result, metrics/health/log verification, cleanup result, and recorded verification output. Do not add credentials or personal paths.
 
 ## High CPU [DEFERRED TO V2]
 
@@ -33,7 +33,7 @@ Capture the scenario ID, setup command or fixture, timestamps, incident payload,
 
 **Cleanup:** Disable the simulation and restore baseline configuration; verify no residual load.
 
-**Test evidence:** Detector test, graph path test, approval branch test, verification assertions, and measured run output.
+**Verification evidence:** Run the detector manually against the fixture, walk the graph path, exercise the approval branch, check the verification behavior, and record the observed output.
 
 ## Memory Pressure [DEFERRED TO V2]
 
@@ -51,9 +51,9 @@ Capture the scenario ID, setup command or fixture, timestamps, incident payload,
 
 **Verification:** Check memory trend, `/health`, representative orders, and logs for recurrence or restart errors.
 
-**Cleanup:** Disable the fixture, wait for resources to settle, and reset the service if the test requires it.
+**Cleanup:** Disable the fixture, wait for resources to settle, and reset the service if required.
 
-**Test evidence:** Memory detector and threshold tests, denial-without-approval test, and full verification output.
+**Verification evidence:** Manually trigger the memory fixture, observe the detector and threshold behavior, confirm denial without approval, and record the full observed output.
 
 ## Unhealthy Application [MVP]
 
@@ -73,7 +73,7 @@ Capture the scenario ID, setup command or fixture, timestamps, incident payload,
 
 **Cleanup:** Disable the unhealthy state and restore normal fixture state.
 
-**Test evidence:** Health failure detection, API retrieval, approval/denial, recovery verification, and cleanup assertions.
+**Verification evidence:** Manually enable the health failure, retrieve the incident via the API, confirm approval/denial, verify recovery, and record the cleanup result.
 
 ## High Error Rate [DEFERRED TO V2]
 
@@ -91,9 +91,9 @@ Capture the scenario ID, setup command or fixture, timestamps, incident payload,
 
 **Verification:** Error rate returns below threshold, health is good, representative orders succeed, and logs show no unexplained error burst.
 
-**Cleanup:** Disable failure injection and clear any generated test data.
+**Cleanup:** Disable failure injection and clear any generated demo data.
 
-**Test evidence:** Rate-window tests, false-positive baseline, plan schema test, approval test, and measured recovery output.
+**Verification evidence:** Manually drive the error-rate fixture, check the rate window, confirm the false-positive baseline, inspect the plan schema, exercise approval, and record the observed recovery output.
 
 ## Traffic Spike [MVP]
 
@@ -111,9 +111,9 @@ Capture the scenario ID, setup command or fixture, timestamps, incident payload,
 
 **Verification:** For local MVP, traffic returns to expected range, latency and saturation recover, health is good, orders behave correctly, and logs are clean or explained. For a Terraform scaling plan, the agent explains what the plan would do; CloudWatch metrics/logs provide evidence where available.
 
-**Cleanup:** Stop the generator, reset the application, and confirm baseline metrics. For an AWS test, retain the plan/audit evidence.
+**Cleanup:** Stop the generator, reset the application, and confirm baseline metrics. For an AWS run, retain the plan/audit evidence.
 
-**Test evidence:** Traffic fixture bounds, detector test, tool-call allowlist test, local MVP proposal or remediation test, Terraform plan digest test when enabled, and complete cleanup result.
+**Verification evidence:** Manually drive the bounded traffic fixture, observe the detector and tool-call allowlist, walk the local MVP proposal or remediation, inspect the Terraform plan digest when enabled, and record the complete cleanup result.
 
 ## Scenario Template
 
@@ -138,7 +138,7 @@ Copy this template for future cases and keep the headings stable so the evaluati
 
 **Cleanup:** Restore the baseline and prove the fixture is inactive.
 
-**Test evidence:** Link commands, fixtures, assertions, and measured results.
+**Verification evidence:** Link commands, fixtures, observed output, and measured results.
 ```
 
 ## Scenario Quality Gate
@@ -151,4 +151,5 @@ Copy this template for future cases and keep the headings stable so the evaluati
 - [ ] Metrics, health, and logs are all checked after action.
 - [ ] Failed verification can return to investigation.
 - [ ] Cleanup proves the environment is restored.
+- [ ] Verification evidence records the exact commands and observed output.
 - [ ] Results contain measured evidence and no invented evaluation numbers.

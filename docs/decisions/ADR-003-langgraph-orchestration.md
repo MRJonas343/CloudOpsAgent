@@ -27,4 +27,4 @@ Analyze -> Collect Context -> Investigate -> Diagnose -> Plan -> Human Approval 
 - Authorization and scope are enforced by code and policy, not by prompt wording.
 - Transitions, tool calls, approvals, and verification outcomes are auditable.
 - Adding a capability means registering a tool, not granting broader graph authority.
-- The graph can be tested deterministically with fixtures.
+- The graph can be exercised deterministically with fixtures.

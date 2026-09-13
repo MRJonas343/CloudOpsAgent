@@ -8,8 +8,6 @@ Related references: [`PROJECT_CONTEXT.md`](PROJECT_CONTEXT.md), [`ARCHITECTURE.m
 
 - Docker and Docker Compose available locally.
 - Python environment and FastAPI/Pydantic/LangGraph dependencies selected and pinned by implementation.
-- A test runner for Python services.
-- `moto` library for AWS SDK mocking in tests.
 - Local-only configuration mechanism for ports, thresholds, and simulation controls.
 - No cloud credentials required for MVP; if used later, use a non-production account with least-privilege roles.
 - A README that points to the quick start and this plan.
@@ -20,13 +18,13 @@ Related references: [`PROJECT_CONTEXT.md`](PROJECT_CONTEXT.md), [`ARCHITECTURE.m
 
 **Objective:** establish a clean, documented project skeleton without application behavior.
 
-**Scope:** package layout, Compose skeleton, environment conventions, README outline, ADR placeholders ADR-001 through ADR-005, test layout, lint/format conventions.
+**Scope:** package layout, Compose skeleton, environment conventions, README outline, ADR placeholders ADR-001 through ADR-005, lint/format conventions.
 
-**Deliverables:** repository README, service directories, Compose configuration shape, safe environment example, ADR index, baseline test commands.
+**Deliverables:** repository README, service directories, Compose configuration shape, safe environment example, ADR index, verification commands.
 
 **Acceptance criteria:** a fresh checkout explains how to start the project; no secret values are committed; service names and boundaries match the context.
 
-**Tests/evidence:** documentation read-through, Compose config validation, repository status showing no generated secrets.
+**Evidence:** manual documentation read-through, `docker compose config --quiet` output, and `git status` showing no generated secrets.
 
 **Dependencies:** none.
 
@@ -42,7 +40,7 @@ Related references: [`PROJECT_CONTEXT.md`](PROJECT_CONTEXT.md), [`ARCHITECTURE.m
 
 **Acceptance criteria:** both services start in a clean environment and expose documented health checks without cloud credentials.
 
-**Tests/evidence:** Compose config validation, clean start, health probe output, controlled shutdown and restart.
+**Evidence:** manual `docker compose config --quiet`, a clean `docker compose up`, `curl` health probe output, and a controlled shutdown and restart.
 
 **Dependencies:** Phase 0.
 
@@ -58,11 +56,11 @@ Related references: [`PROJECT_CONTEXT.md`](PROJECT_CONTEXT.md), [`ARCHITECTURE.m
 
 **Acceptance criteria:** normal requests work; health and metrics reflect controlled state; simulations can be started and cleaned up explicitly; simulation controls are not unrestricted.
 
-**Tests/evidence:** endpoint tests, metrics shape assertions, order success/error tests, each simulation trigger and cleanup.
+**Evidence:** manual `curl` of every endpoint compared against the documented contracts, order success/error walkthroughs, and each simulation triggered then reset with the observed responses recorded.
 
 **Dependencies:** Phase 1.
 
-**Out of scope:** AWS traffic generation, production load testing, remediation actions.
+**Out of scope:** AWS traffic generation, production load generation, remediation actions.
 
 ### Phase 3: Monitoring Module and Incident Detection
 
@@ -74,7 +72,7 @@ Related references: [`PROJECT_CONTEXT.md`](PROJECT_CONTEXT.md), [`ARCHITECTURE.m
 
 **Acceptance criteria:** each fixture produces the intended incident type and severity; normal operation does not produce an incident; payloads include ID, type, severity, status, timestamps, observations, source, and correlation ID.
 
-**Tests/evidence:** unit tests for each function, scenario detector tests, false-positive baseline, payload snapshots.
+**Evidence:** manual verification for each function, a detector run for each MVP fixture, a false-positive baseline check, and recorded incident payloads.
 
 **Dependencies:** Phase 2.
 
@@ -90,7 +88,7 @@ Related references: [`PROJECT_CONTEXT.md`](PROJECT_CONTEXT.md), [`ARCHITECTURE.m
 
 **Acceptance criteria:** valid incident payloads are accepted; invalid types, statuses, and missing fields are rejected; retrieval returns current state and evidence; health is observable.
 
-**Tests/evidence:** model tests, API contract tests, invalid-input tests, round-trip create/retrieve test.
+**Evidence:** manual `curl` of valid and invalid payloads, a create/retrieve round trip, and recorded responses checked against the typed contract.
 
 **Dependencies:** Phase 3.
 
@@ -106,7 +104,7 @@ Related references: [`PROJECT_CONTEXT.md`](PROJECT_CONTEXT.md), [`ARCHITECTURE.m
 
 **Acceptance criteria:** a fixture can traverse the graph in order; every node emits inspectable state; approval and verification branches are explicit; failed verification can return to investigation.
 
-**Tests/evidence:** graph transition tests, serialized state snapshots, approval/denial branch tests, verification-failure loop test.
+**Evidence:** manual graph runs through each transition, recorded serialized state, an approval and a denial walkthrough, and a verification-failure loop run.
 
 **Dependencies:** Phase 4.
 
@@ -122,7 +120,7 @@ Related references: [`PROJECT_CONTEXT.md`](PROJECT_CONTEXT.md), [`ARCHITECTURE.m
 
 **Acceptance criteria:** a scenario moves from detection to close or an explicit blocked state; only registered tools run; plans include risk, scope, rollback/no-op, approval, and verification criteria; verification checks metrics, health, and logs.
 
-**Tests/evidence:** end-to-end tests for all five scenarios, tool allowlist tests, blocked-action tests, audit event assertions.
+**Evidence:** manual end-to-end runs for the MVP scenarios, tool allowlist checks, blocked-action checks, and recorded audit events.
 
 **Dependencies:** Phases 2 through 5.
 
@@ -138,7 +136,7 @@ Related references: [`PROJECT_CONTEXT.md`](PROJECT_CONTEXT.md), [`ARCHITECTURE.m
 
 **Acceptance criteria:** tools cannot mutate resources; calls are scoped, logged, timed out, and redacted; local mocks reproduce expected evidence when credentials are absent.
 
-**Tests/evidence:** policy review, mock contract tests, denied-mutation test, optional isolated-account smoke test with measured output.
+**Evidence:** manual policy review, mock-backed contract checks, a denied-mutation check, and an optional isolated-account smoke run with recorded output.
 
 **Dependencies:** Phase 6 and approved IAM design.
 
@@ -154,7 +152,7 @@ Related references: [`PROJECT_CONTEXT.md`](PROJECT_CONTEXT.md), [`ARCHITECTURE.m
 
 **Acceptance criteria:** observation-only work requires no mutation approval; risk-bearing actions stop until approved; denial, expiry, ambiguity, and missing evidence fail closed; model output never authorizes itself.
 
-**Tests/evidence:** matrix-driven tests, approval replay tests, expiry tests, out-of-scope action tests, redaction tests.
+**Evidence:** manual matrix-driven walkthroughs, approval replay, expiry, out-of-scope action, and redaction checks with recorded observations.
 
 **Dependencies:** Phase 6; Phase 7 for cloud action taxonomy.
 
@@ -173,11 +171,11 @@ Related references: [`PROJECT_CONTEXT.md`](PROJECT_CONTEXT.md), [`ARCHITECTURE.m
 3. **CloudWatch:** connect scoped CloudWatch metrics/logs as read-only evidence for plan and verification.
 4. **Plan and explain:** run `terraform_validate()` -> `terraform_plan()` -> agent explains the plan to the user.
 
-**Deliverables:** reviewable Terraform code, exact plan artifacts or digests, typed tool contracts, and measured plan evidence where an isolated test environment permits.
+**Deliverables:** reviewable Terraform code, exact plan artifacts or digests, typed tool contracts, and measured plan evidence where an isolated environment permits.
 
 **Acceptance criteria:** formatting and validation pass; plans are inspectable and immutable by digest; the agent explains what the plan would do without executing it; IAM changes are treated as high-risk/destructive.
 
-**Tests/evidence:** `fmt` check, `validate`, static security checks, plan review, plan digest comparison, CloudWatch evidence.
+**Evidence:** `terraform fmt` check, `terraform validate`, static security checks, plan review, plan digest comparison, and CloudWatch evidence.
 
 **Dependencies:** Phase 8 and approved architecture decisions.
 
@@ -193,7 +191,7 @@ Related references: [`PROJECT_CONTEXT.md`](PROJECT_CONTEXT.md), [`ARCHITECTURE.m
 
 **Acceptance criteria:** V1: incidents are observable during the session. V2: restart does not erase required incident history; audit records are queryable and tamper-evident within the chosen design; structured logs include correlation IDs.
 
-**Tests/evidence:** V1: in-memory state tests. V2: persistence integration tests, restart test, audit completeness assertions.
+**Evidence:** V1: manual review of in-memory incident state during a session. V2: a manual restart check, durability and audit completeness checks, and recorded output.
 
 **Dependencies:** Phase 6 and operational design from Phase 8.
 
@@ -207,13 +205,13 @@ Related references: [`PROJECT_CONTEXT.md`](PROJECT_CONTEXT.md), [`ARCHITECTURE.m
 
 **Objective:** measure behavior rather than assert it.
 
-**Scope:** reproducible scenario runner, evidence capture, detection/diagnosis/plan/approval/verification assertions, measured result reporting.
+**Scope:** reproducible scenario runner, evidence capture, detection/diagnosis/plan/approval/verification checks, measured result reporting.
 
 **Deliverables:** scenario matrix and evaluation report format for the five core incidents.
 
 **Acceptance criteria:** every scenario has setup, expected tool calls, diagnosis, remediation proposal, approval expectation, verification, cleanup, and evidence; results record actual observations without invented targets.
 
-**Tests/evidence:** full scenario runs, failure injection, false-positive checks, measured timing and outcome report.
+**Evidence:** full manual scenario runs, failure injection, false-positive checks, and a measured timing and outcome report.
 
 **Dependencies:** Phases 6, 8, 10, and 11.
 
@@ -223,13 +221,13 @@ Related references: [`PROJECT_CONTEXT.md`](PROJECT_CONTEXT.md), [`ARCHITECTURE.m
 
 **Objective:** enforce safety and quality gates automatically.
 
-**Scope:** lint, formatting, unit/integration/scenario tests, Compose validation, dependency scanning, secret scanning, Terraform validation, artifact retention, deployment gates.
+**Scope:** lint, formatting, Compose validation, dependency scanning, secret scanning, Terraform validation, artifact retention, deployment gates.
 
 **Deliverables:** CI pipeline, release checklist, environment separation, rollback notes.
 
-**Acceptance criteria:** protected branches reject failed safety checks; secrets and generated artifacts are excluded; release evidence links to measured tests and approved changes.
+**Acceptance criteria:** protected branches reject failed safety checks; secrets and generated artifacts are excluded; release evidence links to measured verification evidence and approved changes.
 
-**Tests/evidence:** successful and intentionally failing pipeline runs, secret-scan fixture, deployment dry run, rollback rehearsal.
+**Evidence:** successful and intentionally failing pipeline runs, secret-scan fixture, deployment dry run, rollback rehearsal.
 
 **Dependencies:** Phases 9 through 12, including Terraform validation and plan safety checks where infrastructure is in scope.
 
@@ -247,29 +245,29 @@ The following 27-item sequence is the authoritative implementation order from th
 |---|---|---|---|
 | 01 | Repository cleanup/foundation | Phase 0 | Foundation gate: clean layout, README outline, ADR targets, safe configuration |
 | 02 | Docker Compose (2 services) | Phase 1 | Foundation gate: two services start and health checks pass |
-| 03 | Python application | Phase 2 | Detection gate: endpoints, metrics, and bounded simulations pass |
-| 04 | Monitoring module (internal) | Phase 3 | Detection gate: monitoring functions and MVP detectors pass (2 scenarios) |
-| 05 | Incident model | Phase 4 | Contract gate: typed models and validation pass |
-| 06 | FastAPI agent gateway | Phase 4 | Contract gate: `POST /incidents`, retrieval, and health pass |
-| 07 | LangGraph skeleton | Phase 5 | Orchestration gate: deterministic nodes and transitions pass |
+| 03 | Python application | Phase 2 | Detection gate: endpoints, metrics, and bounded simulations verified manually |
+| 04 | Monitoring module (internal) | Phase 3 | Detection gate: monitoring functions and MVP detectors verified manually (2 scenarios) |
+| 05 | Incident model | Phase 4 | Contract gate: typed models and validation verified manually |
+| 06 | FastAPI agent gateway | Phase 4 | Contract gate: `POST /incidents`, retrieval, and health verified manually |
+| 07 | LangGraph skeleton | Phase 5 | Orchestration gate: deterministic nodes and transitions verified manually |
 | 08 | Agent state | Phase 5 | Orchestration gate: state, evidence, approval, and verification fields are inspectable |
-| 09 | AWS read-only tools | Phase 7 | Cloud-read-only gate: scoped tools, mocks (moto), IAM review, denied mutation |
+| 09 | AWS read-only tools | Phase 7 | Cloud-read-only gate: scoped tools, AWS mocks, IAM review, denied mutation |
 | 10 | Investigation workflow | Phase 6 | MVP gate: registered read-only calls and evidence correlation |
 | 11 | Diagnosis | Phase 6 | MVP gate: evidence-supported diagnosis and uncertainty |
 | 12 | Remediation planning | Phase 6 | MVP gate: typed plan with scope, risk, rollback/no-op, and verification |
-| 13 | Human approval | Phase 8 | Safety gate: approval, denial, expiry, and stale-evidence tests |
+| 13 | Human approval | Phase 8 | Safety gate: approval, denial, expiry, and stale-evidence checks |
 | 14 | First safe remediation | Phase 6 | MVP gate: bounded local remediation or explicit blocked state |
 | 15 | Verification loop | Phase 6 | MVP gate: metrics, health, logs, and return-to-investigation path |
 | 16 | Terraform infrastructure | Phase 9, substep 1 | V1 infrastructure gate: validated VPC/EC2/IAM/CloudWatch/security groups |
 | 17 | Terraform tools (plan only) | Phase 9, substep 2 | V1 tooling gate: validate/plan contracts (read-only), arbitrary-command denial |
-| 18 | CloudWatch integration | Phase 9, substep 3 | V1 cloud-evidence gate: scoped metrics/logs and redaction tests |
+| 18 | CloudWatch integration | Phase 9, substep 3 | V1 cloud-evidence gate: scoped metrics/logs and redaction checks |
 | 19 | Incident scenarios (2 MVP) | Phase 12 | Scenario gate: 2 MVP scenarios with measured evidence; 3 deferred to V2 |
 | 20 | IAM hardening | Phase 8 and Phase 9 | Safety gate: least-privilege policy review and high-risk IAM change handling |
 | 21 | ~~OpenTelemetry~~ | ~~Phase 10~~ | [REMOVED] Not in scope |
 | 22 | Persistence (in-memory V1, SQLite V2) | Phase 10 | Operational gate: in-memory for V1; V2 restart, durability, audit completeness |
 | 23 | ~~Dashboard~~ | ~~Phase 11~~ | [REMOVED] Use API responses + CLI/scripts for demos |
 | 24 | Evaluation | Phase 12 | Evaluation gate: measured results, no fabricated targets or scores |
-| 25 | CI/CD | Phase 13 | Release gate: safety, tests, scanning, plan checks, and rollback evidence |
+| 25 | CI/CD | Phase 13 | Release gate: safety, verification, scanning, plan checks, and rollback evidence |
 | 26 | Documentation | Phase 0, then each phase | Documentation gate: README, ADRs, and linked docs match behavior |
 | 27 | ~~AgentCore exploration~~ | ~~Phase 14~~ | [REMOVED] Not needed for this project |
 
@@ -279,7 +277,7 @@ The agent generates Terraform plans and explains them to the user. Required evid
 
 ## MVP Cut Line
 
-MVP includes the local portions of ordered items 01 through 15 and the safety requirements needed to demonstrate them. MVP includes 2 scenarios (unhealthy application, traffic spike). AWS read-only tools may be exercised with mocks (using `moto`), but MVP excludes Terraform infrastructure deployment, Terraform apply/destroy, CloudWatch production integration, durable persistence (in-memory only for V1), CI/CD, and production AWS mutation. V1 covers ordered items 09 and 16 through 20; V2 covers persistence (SQLite), the remaining 3 scenarios, evaluation (item 24), and CI/CD (item 25).
+MVP includes the local portions of ordered items 01 through 15 and the safety requirements needed to demonstrate them. MVP includes 2 scenarios (unhealthy application, traffic spike). AWS read-only tools may be exercised with mocks, but MVP excludes Terraform infrastructure deployment, Terraform apply/destroy, CloudWatch production integration, durable persistence (in-memory only for V1), CI/CD, and production AWS mutation. V1 covers ordered items 09 and 16 through 20; V2 covers persistence (SQLite), the remaining 3 scenarios, evaluation (item 24), and CI/CD (item 25).
 
 ## Milestone Gates
 
@@ -288,10 +286,10 @@ MVP includes the local portions of ordered items 01 through 15 and the safety re
 | Foundation | Compose topology (2 services), README, ADR targets, no secrets | Phase 2 |
 | Detection | 2 MVP scenarios detected with stable payloads | Phase 4 |
 | Orchestration | Graph transitions, approval branch, verification loop | Phase 6 |
-| MVP | End-to-end local flow, audit events, MVP scenario tests | Phase 7+ |
-| Cloud read-only | IAM review, mocks (moto), denied mutation, measured smoke test if used | Phase 9 |
+| MVP | End-to-end local flow, audit events, MVP scenario verification | Phase 7+ |
+| Cloud read-only | IAM review, AWS mocks, denied mutation, measured smoke run if used | Phase 9 |
 | Terraform plan | Validated configuration, immutable plan digest, static security checks | V1 plan workflow |
-| Safety | Risk matrix, approval/expiry/deny tests, redaction evidence, IAM hardening | Any mutation design |
+| Safety | Risk matrix, approval/expiry/deny checks, redaction evidence, IAM hardening | Any mutation design |
 | Operational | Persistence (in-memory V1, SQLite V2), structured logging, evaluation evidence | Phase 13 |
 | Release | CI/CD gates, rollback rehearsal, reviewed release evidence | Done |
 
@@ -325,8 +323,8 @@ Detailed reproductions live in [`SCENARIOS.md`](SCENARIOS.md).
 - [ ] Phase 4: FastAPI endpoints and typed Pydantic models
 - [ ] Phase 5: deterministic LangGraph nodes and state
 - [ ] Phase 6: local tools, audit events, end-to-end MVP flow
-- [ ] MVP gate passed with measured scenario evidence (2 scenarios)
-- [ ] Phase 7: AWS read-only tools and IAM review (moto for mocks)
+- [ ] MVP gate met with measured scenario evidence (2 scenarios)
+- [ ] Phase 7: AWS read-only tools and IAM review (mocks for AWS)
 - [ ] Phase 8: risk levels, guardrails, and human approval
 - [ ] Phase 9: Terraform infrastructure, typed tools (plan only, no apply/destroy), CloudWatch integration
 - [ ] Phase 10: persistence (in-memory V1, SQLite V2), audit durability, structured logging

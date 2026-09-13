@@ -41,7 +41,7 @@ def create_app(
     settings: Settings | None = None,
     clock: Callable[[], float] | None = None,
 ) -> FastAPI:
-    """Build the application; tests inject ``settings`` and a fake ``clock``."""
+    """Build the application; ``settings`` and a fake ``clock`` can be injected for deterministic runs."""
     settings = settings or Settings()
     configure_logging(settings.log_level, service="app")
 

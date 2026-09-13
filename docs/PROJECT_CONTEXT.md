@@ -65,8 +65,8 @@ Local services remain the deterministic development and demonstration surface. A
 | Infrastructure | Terraform definitions for VPC, EC2, IAM, CloudWatch, and security groups; plan + explanation only (no apply) |
 | Observability | Structured logging with correlation IDs; no OpenTelemetry |
 | Persistence | V1: in-memory only. V2: SQLite (file-based, no external DB) |
-| Testing | `moto` for AWS SDK mocks; no LocalStack, no real AWS for testing |
-| Documentation decisions | ADR-001 through ADR-005, plus a README that explains setup, demo, architecture, safety, testing, and roadmap |
+| Verification | Recorded manual verification against deterministic fixtures; no real AWS |
+| Documentation decisions | ADR-001 through ADR-005, plus a README that explains setup, demo, architecture, safety, verification, and roadmap |
 
 ## Contracts
 
@@ -77,7 +77,7 @@ The simulated Python service exposes:
 - `GET /health` for liveness/readiness and controlled unhealthy states.
 - `GET /metrics` for deterministic operational metrics such as CPU, memory, request count, error count, latency, and traffic.
 - `GET /api/orders` for a representative application operation.
-- A controlled failure/load simulation interface used only by local tests and demos. It must be bounded, explicit, and disabled or protected outside local development.
+- A controlled failure/load simulation interface used only for local demos and manual verification. It must be bounded, explicit, and disabled or protected outside local development.
 
 ### Monitoring (Internal Module)
 
@@ -186,7 +186,7 @@ Evaluation must be reproducible and measured. Report scenario, setup, command or
 
 ## Documentation and ADR Targets
 
-The README should outline purpose, quick start, Compose services, API endpoints, demo walkthrough, architecture, safety model, testing, evaluation, roadmap, and links to these docs. Maintain these ADR targets as decisions become concrete:
+The README should outline purpose, quick start, Compose services, API endpoints, demo walkthrough, architecture, safety model, manual verification, evaluation, roadmap, and links to these docs. Maintain these ADR targets as decisions become concrete:
 
 - ADR-001: initial service boundaries and local Compose topology.
 - ADR-002: typed incident contract and lifecycle state model.
@@ -196,4 +196,4 @@ The README should outline purpose, quick start, Compose services, API endpoints,
 
 ## Final Definition of Done
 
-CloudOpsAgent is done for a release when a fresh contributor can run the documented local setup, reproduce each core scenario, observe the full lifecycle, inspect typed evidence and audit records, see approval enforced for risky actions, confirm verification checks metrics/health/logs, and review measured evaluation results. The implementation must respect service boundaries, least privilege, explicit scope, and the roadmap cut line.
+CloudOpsAgent is done for a release when a fresh contributor can run the documented local setup, reproduce each core scenario through recorded manual verification, observe the full lifecycle, inspect typed evidence and audit records, see approval enforced for risky actions, confirm verification checks metrics/health/logs, and review measured evaluation results. The implementation must respect service boundaries, least privilege, explicit scope, and the roadmap cut line.

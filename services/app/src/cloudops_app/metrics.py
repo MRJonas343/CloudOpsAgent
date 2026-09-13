@@ -24,8 +24,9 @@ def compute_metrics(
 ) -> dict[str, object]:
     """Return a deterministic metric snapshot for the given fault mode.
 
-    Baseline values are exact so tests and monitors can assert on them. Live
-    counters are reported verbatim; they never perturb the deterministic fields.
+    Baseline values are exact so monitors and manual verification can rely on
+    them. Live counters are reported verbatim; they never perturb the
+    deterministic fields.
     """
     status = "ok"
     cpu_percent = BASELINE_CPU_PERCENT

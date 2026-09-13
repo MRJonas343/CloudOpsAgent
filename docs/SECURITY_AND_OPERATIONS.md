@@ -17,7 +17,7 @@ Roles should be separate credentials or execution identities where the platform 
 
 ## Credential Handling
 
-- Load credentials from approved environment, local secret store, or workload identity; never from source, tests, fixtures, logs, or docs.
+- Load credentials from approved environment, local secret store, or workload identity; never from source, fixtures, logs, or docs.
 - Use short-lived credentials and narrow roles when cloud access is introduced.
 - Redact tokens, authorization headers, secret values, and sensitive identifiers before persistence.
 - Fail closed when credentials are absent or over-privileged rather than falling back to a broader identity.
@@ -126,7 +126,7 @@ If any class is missing, stale, contradictory, or unhealthy, keep the incident o
 - [ ] Monitoring module (inside agent) polls app via HTTP and emits stable incident payloads with correlation IDs.
 - [ ] FastAPI validates all incident and plan fields.
 - [ ] Graph nodes use registered tools only.
-- [ ] Read-only tools are tested before any mutating tool exists.
+- [ ] Read-only tools are manually verified before any mutating tool is enabled.
 - [ ] Every action has a risk level, scope, approval state, and verification criteria.
 - [ ] Secrets and sensitive values are redacted.
 - [ ] Metrics, health, and logs are checked after action.

@@ -30,7 +30,7 @@ class AppClient:
     """Async client for the app's health and metrics endpoints.
 
     Inject ``client`` (for example an ``httpx.AsyncClient`` backed by
-    ``httpx.MockTransport``) to test without real network access.
+    ``httpx.MockTransport``) to run without real network access.
     """
 
     def __init__(

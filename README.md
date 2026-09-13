@@ -6,14 +6,14 @@ A safe, auditable incident-response control plane for simulated applications tod
 
 ## Quick start
 
-Prerequisites: Docker + Docker Compose, [`uv`](https://docs.astral.sh/uv/), GNU Make, and Python 3.12 (uv can install it automatically).
+Prerequisites: Docker + Docker Compose, [`uv`](https://docs.astral.sh/uv/), and Python 3.12 (uv can install it automatically).
 
 ```bash
-make install                    # sync each service's dependencies with uv
+uv sync --directory services/app && uv sync --directory services/agent   # sync each service's dependencies with uv
 python scripts/setup_local.py   # start the topology (docker compose up; add -d for detached)
 ```
 
-`make up` runs the same `docker compose up -d` if you prefer the Makefile target.
+`docker compose up -d` starts the same topology in detached mode if you prefer to run Compose directly.
 
 Verify both services:
 
@@ -26,7 +26,7 @@ curl http://localhost:8000/health   # {"status":"ok","service":"agent"}
 Stop the topology:
 
 ```bash
-make down
+docker compose down
 ```
 
 Copy `.env.example` to `.env` to override ports, log level, polling interval, or the LLM provider placeholder. Never put real secrets in `.env`; it is git-ignored.
@@ -44,7 +44,7 @@ The `agent` service polls `app` and exposes the incident API; the graph and regi
 
 ## Simulated application
 
-The `app` service is a deterministic target for monitoring and demos. Every `/metrics` value is exact unless a fault is active, so tests and monitors can assert on it.
+The `app` service is a deterministic target for monitoring and demos. Every `/metrics` value is exact unless a fault is active, so monitors and manual verification can rely on it.
 
 | Endpoint | Behavior |
 |---|---|
@@ -142,7 +142,6 @@ On Windows, export `PYTHONIOENCODING=utf-8` before running the LangGraph CLI so 
 
 ```text
 CloudOpsAgent/
-├── Makefile                     # thin task wrappers
 ├── docker-compose.yml           # 2-service topology with health checks
 ├── .env.example                 # safe, non-secret configuration template
 ├── docs/
@@ -165,20 +164,12 @@ CloudOpsAgent/
         └── src/cloudops_agent/
 ```
 
-## Make targets
+## Linting
 
-| Target | Action |
-|---|---|
-| `make install` | `uv sync` for each service |
-| `make lint` | `ruff check` in the agent service |
-| `make format` | `ruff format` in the agent service |
-| `make test` | `pytest` in the app and agent services |
-| `make up` | `docker compose up -d` |
-| `make down` | `docker compose down` |
-| `make build` | `docker compose build` |
-| `make clean` | remove local virtualenvs, caches, and `__pycache__` |
-
-Each target is a thin wrapper; run the underlying command directly if you prefer.
+```bash
+uv run --directory services/agent ruff check .
+uv run --directory services/agent ruff format .
+```
 
 ## Documentation
 
@@ -202,5 +193,3 @@ Persistence is in-memory for V1. The agent never executes `terraform apply` or `
 ## License
 
 [MIT](LICENSE) © 2026 Jonas
-
-uv run --directory services/agent langgraph dev

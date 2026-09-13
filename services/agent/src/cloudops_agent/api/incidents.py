@@ -3,8 +3,8 @@
 ``POST /incidents`` accepts a typed payload, stores it through the shared
 ``IncidentStore`` (which assigns the sequential ``INC-####`` id), and returns
 the stored incident. ``GET /incidents/{incident_id}`` returns the current
-stored state or a ``404``. The store is read from ``request.app.state`` so tests
-can inject one via ``create_app(..., store=...)``.
+stored state or a ``404``. The store is read from ``request.app.state`` so it
+can be injected via ``create_app(..., store=...)``.
 """
 
 from datetime import UTC, datetime
