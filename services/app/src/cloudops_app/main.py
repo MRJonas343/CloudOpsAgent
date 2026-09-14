@@ -42,6 +42,17 @@ class RequestCounters:
     error_count: int = 0
 
 
+#: Operator-only control routes that must never appear in the consultable store.
+_CONTROL_ROUTE_PREFIXES = ("/simulate",)
+
+
+def _is_control_route(path: str) -> bool:
+    """Return ``True`` for operator-only control routes (never agent-visible)."""
+    return any(
+        path == prefix or path.startswith(f"{prefix}/") for prefix in _CONTROL_ROUTE_PREFIXES
+    )
+
+
 def create_app(
     settings: Settings | None = None,
     clock: Callable[[], float] | None = None,
@@ -72,21 +83,39 @@ def create_app(
         if response.status_code >= 500:
             counters.error_count += 1
 
-        fault = controller.active_mode()
-        if response.status_code >= 500:
+        path = request.url.path
+        if _is_control_route(path):
+            return response
+
+        mode = controller.active_mode()
+        if response.status_code >= 500 or mode is FaultMode.unhealthy_application:
             level = "error"
-        elif response.status_code >= 400 or fault is not None:
+        elif response.status_code >= 400 or mode is FaultMode.traffic_spike:
             level = "warning"
         else:
             level = "info"
-        suffix = f" (fault active: {fault.value})" if fault is not None else ""
+
+        # While the service is degraded the request log reports the same p95
+        # latency /metrics exposes, so the two views never disagree.
+        if mode is None:
+            reported_latency_ms = duration_ms
+        else:
+            snapshot = compute_metrics(
+                mode,
+                counters.request_count,
+                counters.error_count,
+                replicas=replicas,
+                baseline_replicas=settings.baseline_replicas,
+            )
+            reported_latency_ms = snapshot["latency_ms_p95"]
+
         logs.record(
             level,
-            f"{request.method} {request.url.path} -> {response.status_code} in {duration_ms}ms{suffix}",
-            path=request.url.path,
+            f"{request.method} {path} -> {response.status_code} in {reported_latency_ms}ms",
+            path=path,
             method=request.method,
             status=response.status_code,
-            duration_ms=duration_ms,
+            duration_ms=reported_latency_ms,
         )
         return response
 
@@ -197,7 +226,6 @@ def create_app(
     async def reset_simulation() -> SimulationStatus:
         require_simulation_enabled()
         controller.reset()
-        logs.record("info", "simulation reset")
         return build_status()
 
     @app.post("/simulate/{mode}", response_model=SimulationStatus)
@@ -210,11 +238,7 @@ def create_app(
         if fault is None:
             raise HTTPException(status_code=404, detail=f"unknown simulation mode: {mode}")
         duration = body.duration_seconds if body is not None else None
-        state = controller.activate(fault, duration)
-        logs.record(
-            "warning",
-            f"simulation activated: {fault.value} for {state.duration_seconds}s",
-        )
+        controller.activate(fault, duration)
         return build_status()
 
     return app

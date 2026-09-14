@@ -36,14 +36,57 @@ class DiagnosisResult(BaseModel):
     diagnosis: str
 
 
-class PlanDraft(BaseModel):
-    """A remediation plan as proposed by the planner (no timestamps)."""
+class PlanParameter(BaseModel):
+    """A single remediation parameter, named exactly as the catalogue declares.
 
-    action: str
-    description: str
-    risk_level: RiskLevel
-    approval_required: bool
-    scope: str
-    parameters: dict[str, str] = Field(default_factory=dict)
-    rollback: str | None = None
-    verification_criteria: list[str] = Field(default_factory=list)
+    Parameters are modelled as a list of typed objects rather than a free-form
+    mapping: Bedrock structured output reliably fills explicit object lists but
+    silently returns an empty object for ``additionalProperties`` mappings.
+    """
+
+    name: str = Field(
+        description="Parameter name exactly as declared in the catalogue.",
+    )
+    value: str = Field(
+        description="The parameter value, encoded as a string.",
+    )
+
+
+class PlanDraft(BaseModel):
+    """A remediation plan as proposed by the planner (no timestamps).
+
+    Every field carries a description because the descriptions are part of the
+    JSON schema the model sees: without them the model tends to leave
+    ``parameters`` empty, and the executor then has nothing to run.
+    """
+
+    action: str = Field(
+        description="Exactly one action name from the supplied catalogue.",
+    )
+    description: str = Field(
+        description="What the action does and why it fits the diagnosis.",
+    )
+    risk_level: RiskLevel = Field(
+        description="Honest risk classification of the proposed action.",
+    )
+    approval_required: bool = Field(
+        description="Whether human approval is required before the action runs.",
+    )
+    scope: str = Field(
+        description="The exact resource or service scope the action touches.",
+    )
+    parameters: list[PlanParameter] = Field(
+        description=(
+            "One entry per parameter the chosen action declares, using exactly the "
+            'catalogue names. Example: [{"name": "replicas", "value": "4"}]. Use an '
+            "empty list only when the action declares no parameters."
+        ),
+    )
+    rollback: str | None = Field(
+        default=None,
+        description="How to undo the action, or null when it reverses itself.",
+    )
+    verification_criteria: list[str] = Field(
+        default_factory=list,
+        description="What must be true afterwards for the action to count as successful.",
+    )

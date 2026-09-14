@@ -85,14 +85,6 @@ def _errors(base_url: str, timeout: float, limit: int) -> dict[str, Any]:
     return response.json()
 
 
-def _simulation_status(base_url: str, timeout: float) -> dict[str, Any]:
-    """Read the active fault and remaining seconds from ``GET /simulate/status``."""
-    with _client(base_url, timeout) as client:
-        response = client.get("/simulate/status")
-    response.raise_for_status()
-    return response.json()
-
-
 def build_app_tools(settings: Settings | None = None) -> tuple[Tool, ...]:
     """Build the read-only tools that read the simulated app's real HTTP API."""
     effective = settings or Settings()
@@ -147,13 +139,5 @@ def build_app_tools(settings: Settings | None = None) -> tuple[Tool, ...]:
                 input_model=LogQuery,
             ),
             run=partial(_errors, base_url, timeout),
-        ),
-        Tool(
-            spec=spec(
-                "get_simulation_status",
-                "Read GET /simulate/status: the active fault mode, whether "
-                "simulation is enabled, and the remaining seconds.",
-            ),
-            run=partial(_simulation_status, base_url, timeout),
         ),
     )

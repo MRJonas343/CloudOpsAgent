@@ -57,5 +57,15 @@ class Settings(BaseSettings):
     traffic_spike_rps_threshold: float = 20.0
     app_request_timeout_seconds: float = 5.0
 
+    # Post-remediation verification thresholds. Verification requires health
+    # ``ok``, zero error rate, CPU strictly below ``healthy_cpu_threshold``, p95
+    # latency strictly below ``healthy_latency_ms_threshold``, and no error-level
+    # log entries. The defaults are chosen against the deterministic fixtures: a
+    # ``traffic_spike`` at the 2-replica baseline reports CPU 78 and latency 180,
+    # so an un-remediated spike fails verification; the same spike after scaling
+    # to 4 replicas reports CPU 39 and latency 90, so it passes.
+    healthy_cpu_threshold: float = 70.0
+    healthy_latency_ms_threshold: float = 150.0
+
 
 settings = Settings()

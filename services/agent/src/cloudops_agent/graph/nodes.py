@@ -2,13 +2,17 @@
 
 The investigation, diagnosis, and planning nodes call the agents declared in
 ``agents.yaml`` through :func:`build_agent`. ``collect_context`` gathers real
-evidence through the registered read-only tools. The execution and approval
-nodes are still placeholders: execution becomes a guarded mutating tool call and
-the approval gate becomes a real human interrupt in later phases.
+evidence through the registered read-only tools. ``plan_remediation`` offers the
+planner the real remediation catalogue, ``execute_remediation`` runs only an
+allowlisted mutating tool through the registry (deny-by-default), and
+``verify_remediation`` checks the app's real health, metrics, and error logs.
+The human approval gate is still mocked and a later phase replaces it with a
+real operator interrupt.
 """
 
 from __future__ import annotations
 
+import json
 import logging
 from datetime import UTC, datetime
 from typing import Any
@@ -37,7 +41,7 @@ from cloudops_agent.models import (
     RemediationPlan,
     RemediationResult,
 )
-from cloudops_agent.tools import get_tool_registry
+from cloudops_agent.tools import UnknownToolError, get_tool_registry
 
 logger = logging.getLogger(__name__)
 
@@ -46,10 +50,6 @@ MAX_ATTEMPTS = 3
 
 #: How many recent / error log entries each context-collection call reads.
 _LOG_LIMIT = 20
-
-#: The mock verifier keeps failing until this many attempts are recorded, so one
-#: Verify -> Investigate cycle is always exercised.
-_MOCK_RETRY_BEFORE_SUCCESS = 1
 
 
 def _now() -> datetime:
@@ -136,9 +136,9 @@ def _failed_observation(
 def collect_context(state: IncidentState) -> dict[str, Any]:
     """Gather real evidence through the registered read-only tools.
 
-    Health, metrics, logs, errors, and simulation status are read from the
-    simulated app over HTTP. A tool failure is recorded as an explicit
-    incomplete-evidence observation; it is never treated as success.
+    Health, metrics, logs, and errors are read from the application over HTTP.
+    A tool failure is recorded as an explicit incomplete-evidence observation;
+    it is never treated as success.
     """
     incident = _incident_of(state)
     logger.info("collect_context incident_id=%s", incident.incident_id)
@@ -236,25 +236,6 @@ def collect_context(state: IncidentState) -> dict[str, Any]:
             _failed_observation("get_recent_errors", "logs", "error_log_count", exc, now)
         )
 
-    try:
-        simulation = registry.invoke("get_simulation_status")
-        mode = simulation.get("mode") or "none"
-        remaining = simulation.get("remaining_seconds")
-        suffix = f" (remaining {remaining:g}s)" if remaining is not None else ""
-        observations.append(
-            Observation(
-                source="simulation",
-                summary=f"active fault '{mode}'{suffix}",
-                metric="active_fault",
-                value=None,
-                observed_at=now,
-            )
-        )
-    except Exception as exc:  # noqa: BLE001 - failures become incomplete evidence
-        observations.append(
-            _failed_observation("get_simulation_status", "simulation", "active_fault", exc, now)
-        )
-
     logger.info("collect_context observations=%d", len(observations))
     return {"observations": observations}
 
@@ -306,8 +287,9 @@ def diagnose(state: IncidentState) -> dict[str, Any]:
 
 
 def plan_remediation(state: IncidentState) -> dict[str, Any]:
-    """Propose a scoped, risk-classified remediation plan."""
+    """Propose a scoped, risk-classified remediation plan from the real catalogue."""
     incident = _incident_of(state)
+    catalogue = get_tool_registry(settings).remediation_catalogue()
     prompt = (
         "Incident:\n"
         f"{_incident_summary(incident)}\n\n"
@@ -315,7 +297,15 @@ def plan_remediation(state: IncidentState) -> dict[str, Any]:
         f"{state.get('diagnosis') or '(none)'}\n\n"
         "Observations:\n"
         f"{_observation_lines(state.get('observations', []))}\n\n"
-        "Propose exactly one bounded remediation plan."
+        "Available remediation actions (this is the complete allowlist):\n"
+        f"{catalogue}\n\n"
+        "Propose exactly one bounded remediation plan. The 'action' field MUST be "
+        "exactly one of the action names listed above, and 'parameters' MUST "
+        "contain every parameter that action declares, using the exact names and "
+        "types shown in the catalogue. For example, if the chosen action declares "
+        "'replicas: integer (min 1, max 10)', set parameters to "
+        '{"replicas": "4"} with a value inside that range. Do not invent actions, '
+        "parameters, or values outside the stated ranges."
     )
     agent = get_agent("planner", response_format=PlanDraft)
     result = agent.invoke({"messages": [{"role": "user", "content": prompt}]})
@@ -335,7 +325,7 @@ def plan_remediation(state: IncidentState) -> dict[str, Any]:
         risk_level=risk_level,
         approval_required=draft.approval_required or requires_approval(risk_level),
         scope=draft.scope,
-        parameters=dict(draft.parameters),
+        parameters={parameter.name: parameter.value for parameter in draft.parameters},
         rollback=draft.rollback,
         verification_criteria=draft.verification_criteria,
         created_at=_now(),
@@ -370,40 +360,158 @@ def human_approval(state: IncidentState) -> dict[str, Any]:
 
 
 def execute_remediation(state: IncidentState) -> dict[str, Any]:
-    """Apply the approved action. Placeholder for the guarded mutating tool."""
+    """Execute the approved plan through the registry, deny-by-default.
+
+    Only a registered mutating tool may run. A missing plan, an unknown action,
+    or a read-only action is denied: nothing is executed and the node returns a
+    failed result explaining the allowlist violation. This node never raises, so
+    the graph always has a remediation result to verify.
+    """
     plan = state.get("plan")
-    action = plan.action if plan is not None else "no-op"
-    logger.info("execute action=%s", action)
+
+    if plan is None:
+        error = "no remediation plan to execute"
+        logger.warning("execute deny reason=no_plan")
+        return {
+            "execution_result": RemediationResult(
+                action="none",
+                outcome=RemediationOutcome.failed,
+                executed_at=_now(),
+                error=error,
+            )
+        }
+
+    action = plan.action
+    risk = int(plan.risk_level)
+    registry = get_tool_registry(settings)
+
+    try:
+        tool = registry.get(action)
+    except UnknownToolError:
+        error = (
+            f"action '{action}' was not executed: it is not an allowlisted "
+            "remediation action"
+        )
+        logger.warning("execute deny action=%s risk=%d reason=not_allowlisted", action, risk)
+        return {
+            "execution_result": RemediationResult(
+                action=action,
+                outcome=RemediationOutcome.failed,
+                executed_at=_now(),
+                error=error,
+            )
+        }
+
+    if tool.spec.read_only:
+        error = (
+            f"action '{action}' was not executed: it is a read-only tool, not a "
+            "remediation action"
+        )
+        logger.warning("execute deny action=%s risk=%d reason=read_only", action, risk)
+        return {
+            "execution_result": RemediationResult(
+                action=action,
+                outcome=RemediationOutcome.failed,
+                executed_at=_now(),
+                error=error,
+            )
+        }
+
+    logger.info("execute allow action=%s risk=%d", action, risk)
+    try:
+        output = registry.invoke(action, **plan.parameters)
+    except Exception as exc:  # noqa: BLE001 - any failure becomes a failed result
+        logger.warning("execute failed action=%s risk=%d error=%s", action, risk, exc)
+        return {
+            "execution_result": RemediationResult(
+                action=action,
+                outcome=RemediationOutcome.failed,
+                executed_at=_now(),
+                error=str(exc),
+            )
+        }
+
     return {
         "execution_result": RemediationResult(
             action=action,
             outcome=RemediationOutcome.succeeded,
             executed_at=_now(),
-            output="mock execution completed",
+            output=json.dumps(output, default=str),
         )
     }
 
 
 def verify_remediation(state: IncidentState) -> dict[str, Any]:
-    """Check metrics, health, and logs after the action.
+    """Check real metrics, health, and logs after the action.
 
-    MOCK: verification still fails the first pass so the ``Verify -> Investigate``
-    retry loop and the ``attempts`` reducer are exercised. Real checks arrive
-    with the tool layer.
+    Verification is deterministic and evidence-based: it is true only when the
+    app reports health ``ok``, ``error_rate == 0``, CPU strictly below
+    ``settings.healthy_cpu_threshold``, p95 latency strictly below
+    ``settings.healthy_latency_ms_threshold``, and no error-level log entries. A
+    failed read leaves its check false, so missing evidence is never verified.
     """
-    attempts = state.get("attempts", 0)
-    verified = attempts >= _MOCK_RETRY_BEFORE_SUCCESS
-    logger.info("verify verified=%s attempts=%d", verified, attempts)
+    incident = _incident_of(state)
+    logger.info("verify incident_id=%s", incident.incident_id)
+    registry = get_tool_registry(settings)
+    problems: list[str] = []
+
+    health_ok = False
+    try:
+        health = registry.invoke("get_app_health")
+        health_ok = bool(health.get("ok"))
+        if not health_ok:
+            problems.append(f"health is '{health.get('status')}', not ok")
+    except Exception as exc:  # noqa: BLE001 - failure means incomplete evidence
+        problems.append(f"health check failed: {exc}")
+
+    metrics_ok = False
+    try:
+        metrics = registry.invoke("get_app_metrics")
+        error_rate = metrics.get("error_rate")
+        cpu = metrics.get("cpu_percent")
+        latency = metrics.get("latency_ms_p95")
+        metrics_ok = (
+            error_rate == 0
+            and cpu is not None
+            and float(cpu) < settings.healthy_cpu_threshold
+            and latency is not None
+            and float(latency) < settings.healthy_latency_ms_threshold
+        )
+        if not metrics_ok:
+            problems.append(
+                f"metrics not healthy: cpu_percent={cpu} "
+                f"(< {settings.healthy_cpu_threshold}), latency_ms_p95={latency} "
+                f"(< {settings.healthy_latency_ms_threshold}), error_rate={error_rate}"
+            )
+    except Exception as exc:  # noqa: BLE001 - failure means incomplete evidence
+        problems.append(f"metrics check failed: {exc}")
+
+    logs_ok = False
+    try:
+        errors = registry.invoke("get_recent_errors", limit=_LOG_LIMIT)
+        error_count = int(errors.get("count", 0) or 0)
+        logs_ok = error_count == 0
+        if not logs_ok:
+            problems.append(f"{error_count} error-level log entries present")
+    except Exception as exc:  # noqa: BLE001 - failure means incomplete evidence
+        problems.append(f"error log check failed: {exc}")
+
+    verified = health_ok and metrics_ok and logs_ok
     if verified:
-        summary = "mock verification: recovered"
+        summary = (
+            "verification passed: health ok, metrics within healthy thresholds, "
+            "no error-level logs"
+        )
     else:
-        summary = "mock verification: still unhealthy"
+        summary = "verification failed: " + "; ".join(problems)
+
+    logger.info("verify verified=%s attempts=%d", verified, state.get("attempts", 0))
     update: dict[str, Any] = {
         "verification": VerificationResult(
             verified=verified,
-            metrics_ok=verified,
-            health_ok=verified,
-            logs_ok=verified,
+            metrics_ok=metrics_ok,
+            health_ok=health_ok,
+            logs_ok=logs_ok,
             summary=summary,
             checked_at=_now(),
         )

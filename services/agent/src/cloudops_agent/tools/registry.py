@@ -19,6 +19,8 @@ import logging
 from time import perf_counter
 from typing import Any
 
+from pydantic import BaseModel
+
 from cloudops_agent.tools.base import Tool, ToolSpec
 
 _AUDIT_LOGGER = logging.getLogger("cloudops_agent.audit")
@@ -70,6 +72,32 @@ def _redact(value: Any) -> Any:
     return value
 
 
+def _describe_input_model(model: type[BaseModel] | None) -> str:
+    """Render a tool's expected parameters from its Pydantic input schema.
+
+    Returns ``"none"`` when the tool takes no validated input, otherwise a
+    comma-separated list of ``name: type (bounds)`` entries. ``?`` marks an
+    optional parameter.
+    """
+    if model is None:
+        return "none"
+    schema = model.model_json_schema()
+    properties: dict[str, Any] = schema.get("properties") or {}
+    required = set(schema.get("required") or [])
+    parts: list[str] = []
+    for name, prop in properties.items():
+        type_name = str(prop.get("type", "value"))
+        bounds: list[str] = []
+        if "minimum" in prop:
+            bounds.append(f"min {prop['minimum']}")
+        if "maximum" in prop:
+            bounds.append(f"max {prop['maximum']}")
+        bound_text = f" ({', '.join(bounds)})" if bounds else ""
+        optional = "" if name in required else "?"
+        parts.append(f"{name}: {type_name}{bound_text}{optional}")
+    return ", ".join(parts) if parts else "none"
+
+
 class ToolRegistry:
     """Holds registered tools and is the only place a tool is executed."""
 
@@ -104,6 +132,25 @@ class ToolRegistry:
         for spec in self.specs():
             mode = "read-only" if spec.read_only else "mutating"
             lines.append(f"- {spec.name} [{mode}, risk {int(spec.risk_level)}]: {spec.description}")
+        return "\n".join(lines)
+
+    def remediation_catalogue(self) -> str:
+        """Return the catalogue of mutating actions available for remediation.
+
+        Only non-read-only tools are listed, because those are the only actions
+        the executor will run. Each entry states the action name, what it does,
+        its risk level, and the exact parameter names and bounds the executor
+        validates, so the planner cannot propose an action or parameter that
+        does not exist.
+        """
+        lines: list[str] = []
+        for spec in self.specs():
+            if spec.read_only:
+                continue
+            lines.append(f"- {spec.name} [risk {int(spec.risk_level)}]: {spec.description}")
+            lines.append(f"  parameters: {_describe_input_model(spec.input_model)}")
+        if not lines:
+            return "(no remediation actions are registered)"
         return "\n".join(lines)
 
     def invoke(self, name: str, **kwargs: Any) -> Any:

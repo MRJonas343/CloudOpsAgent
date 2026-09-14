@@ -132,9 +132,23 @@ Registered read-only tools (Risk 0), all backed by the `app` HTTP API:
 | `get_app_metrics` | `GET /metrics` | the deterministic metric snapshot |
 | `get_app_logs` | `GET /logs?limit=N` | recent log entries (default 20) |
 | `get_recent_errors` | `GET /errors?limit=N` | error-level log entries (default 20) |
-| `get_simulation_status` | `GET /simulate/status` | active fault and remaining seconds |
 
-`collect_context` calls these tools and turns the results into `Observation` evidence. Mutating tools (e.g. a bounded local remediation) are next: they must declare a non-`read` risk level and pass the approval guardrails before execution.
+`collect_context` calls these tools and turns the results into `Observation` evidence.
+
+### Guarded mutating tool
+
+| Tool | Risk | Action | Parameters |
+|---|---|---|---|
+| `scale_service` | 2 (infrastructure_change) | `POST /scale` on the `app` | `replicas: int`, `1 <= replicas <= 10`, no other keys |
+
+`scale_service` is the only mutating tool. It is registered alongside the read-only tools, so a plan can only run it if the action name matches the registry key. Its `PlanDraft` parameters arrive as strings (the planner's `parameters` map is `dict[str, str]`), and the input model coerces `"4"` to `4` and rejects out-of-range or unexpected values at the boundary.
+
+**Catalogue.** `ToolRegistry.remediation_catalogue()` renders the registered non-read-only actions — name, description, risk, and the exact parameter names and bounds from each tool's input schema. `plan_remediation` injects this catalogue into the planner prompt and requires `action` to be exactly one of those names with parameters matching the declared ranges, so the model can only propose actions that exist.
+
+**Deny by default.** `execute_remediation` reads `state["plan"]` and, if the plan is missing or its action is not a registered mutating tool, executes nothing and returns a failed `RemediationResult` with an allowlist error (the node never raises). Otherwise it invokes the tool through the registry and builds the result from the real outcome: `succeeded` with the tool's output, or `failed` with the captured error. Every allow/deny decision is logged with the action and risk.
+
+**Verification decides from real evidence.** `verify_remediation` re-reads the app through the read-only tools and marks the incident verified only when all of these hold: health is `ok`; `error_rate == 0`; `cpu_percent` is strictly below `AGENT_HEALTHY_CPU_THRESHOLD` (default `70.0`); `latency_ms_p95` is strictly below `AGENT_HEALTHY_LATENCY_MS_THRESHOLD` (default `150.0`); and there are no error-level log entries. A failed tool call leaves its check false, so incomplete evidence is never verified. `attempts` increments only on failure, sending the workflow back to investigation. The thresholds are set against the deterministic fixtures: a `traffic_spike` at the 2-replica baseline is CPU 78 / latency 180 (fails), while the same spike scaled to 4 replicas is CPU 39 / latency 90 (passes).
+
 
 ## Model connection (AWS Bedrock)
 
