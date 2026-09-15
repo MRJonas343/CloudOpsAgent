@@ -63,6 +63,32 @@ services:
       start_period: 10s
     restart: unless-stopped
 
+  dashboard:
+    build:
+      context: ./services/dashboard
+    image: cloudopsagent/dashboard:local
+    # nginx listens on 3000 inside the container; DASHBOARD_PORT moves the
+    # published host port only, so nothing inside needs to read it.
+    ports:
+      - "${DASHBOARD_PORT:-3000}:3000"
+    depends_on:
+      agent:
+        # nginx resolves the upstreams per request through Docker's DNS, so it
+        # only needs the service to exist; it does not need the agent healthy to
+        # serve the shell or the app proxy.
+        condition: service_started
+    networks:
+      - cloudops
+    healthcheck:
+      # 127.0.0.1, not localhost: busybox wget resolves localhost to ::1 first and
+      # nginx binds IPv4 only, which reads as "connection refused".
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:3000/healthz >/dev/null || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    restart: unless-stopped
+
 networks:
   cloudops:
     driver: bridge

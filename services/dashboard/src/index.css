@@ -1,0 +1,8 @@
+@import "tailwindcss";
+
+/* The console is a dark surface: pin the page background so the browser's own
+   chrome and any overscroll match the app instead of flashing white. */
+html {
+  color-scheme: dark;
+  background-color: #020617;
+}
