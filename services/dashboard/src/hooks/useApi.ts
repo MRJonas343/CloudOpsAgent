@@ -25,7 +25,8 @@ export interface ApiState<T> {
   reload: () => void
 }
 
-function describeError(error: unknown): ApiFailure {
+/** Normalise any thrown value into the `{status, message}` the UI renders. */
+export function describeError(error: unknown): ApiFailure {
   if (error instanceof ApiError) {
     return { status: error.status, message: error.message }
   }

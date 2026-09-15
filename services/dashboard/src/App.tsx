@@ -3,13 +3,16 @@
  * notification stack.
  *
  * The stream is opened here and passed down, which is what keeps it to a single
- * connection: the live list, the open case file, and the toasts all react to the
- * same frames instead of each opening their own stream.
+ * connection: the live list, the open case file, the toasts, and the chaos
+ * trigger all react to the same frames instead of each opening their own stream.
+ * The chaos trigger lives here too, so an injection started from the empty-state
+ * call to action is still pending when the operator opens `/console`.
  */
 
 import { NavLink, Navigate, Route, Routes } from 'react-router-dom'
 
 import { ToastStack } from './components/Toasts'
+import { useChaos } from './hooks/useChaos'
 import { useEventStream } from './hooks/useEventStream'
 import { useToasts } from './hooks/useToasts'
 import { CaseFilePage } from './pages/CaseFilePage'
@@ -20,6 +23,10 @@ import type { ConnectionState } from './hooks/useEventStream'
 export default function App() {
   const { toasts, notify, dismiss } = useToasts()
   const stream = useEventStream(notify)
+  // One chaos trigger for the whole surface: the empty-state call to action and
+  // the console drive the same injection, and the pending state survives moving
+  // between them.
+  const chaos = useChaos(stream)
 
   return (
     <div className="min-h-screen bg-slate-950 text-slate-200">
@@ -41,9 +48,9 @@ export default function App() {
 
       <main className="mx-auto max-w-6xl px-4 py-5">
         <Routes>
-          <Route path="/" element={<LiveListPage stream={stream} />} />
+          <Route path="/" element={<LiveListPage stream={stream} chaos={chaos} />} />
           <Route path="/incidents/:id" element={<CaseFilePage stream={stream} />} />
-          <Route path="/console" element={<ConsolePage />} />
+          <Route path="/console" element={<ConsolePage chaos={chaos} />} />
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
       </main>

@@ -14,8 +14,10 @@ import { Link } from 'react-router-dom'
 import { listIncidents } from '../api/client'
 import type { IncidentStatus, IncidentType } from '../api/types'
 import { SeverityBadge, StatusBadge } from '../components/Badges'
+import { ChaosErrorNote, InjectionStatus } from '../components/InjectionStatus'
 import { ErrorNote } from '../components/Panel'
 import { useApi } from '../hooks/useApi'
+import type { ChaosController } from '../hooks/useChaos'
 import type { IncidentStream } from '../hooks/useEventStream'
 import { formatDateTime, humanize } from '../lib/format'
 
@@ -42,7 +44,22 @@ const TYPES: readonly IncidentType[] = [
 const CONTROL =
   'rounded-md border border-slate-700 bg-slate-900 px-2.5 py-1.5 text-sm text-slate-200 transition hover:border-slate-500 focus:outline-none focus:ring-1 focus:ring-sky-500'
 
-export function LiveListPage({ stream }: { stream: IncidentStream }) {
+/** The empty state's demo fault: the one mode the chaos console also offers first. */
+const DEMO_FAULT = 'traffic_spike' as const
+
+/**
+ * Long enough that detection (~10s) happens well inside the fault window, and
+ * long enough to leave the operator something to watch degrade on `/console`.
+ */
+const DEMO_DURATION_SECONDS = 60
+
+export function LiveListPage({
+  stream,
+  chaos,
+}: {
+  stream: IncidentStream
+  chaos: ChaosController
+}) {
   const [status, setStatus] = useState<IncidentStatus | ''>('')
   const [type, setType] = useState<IncidentType | ''>('')
 
@@ -122,7 +139,7 @@ export function LiveListPage({ stream }: { stream: IncidentStream }) {
 
       {data === null && loading && <p className="text-sm text-slate-500">Loading incidents…</p>}
 
-      {data !== null && incidents.length === 0 && !hasFilters && <DemoIncidentCta />}
+      {data !== null && incidents.length === 0 && !hasFilters && <DemoIncidentCta chaos={chaos} />}
 
       {data !== null && incidents.length === 0 && hasFilters && (
         <div className="rounded-lg border border-slate-800 bg-slate-900/50 px-4 py-6 text-center">
@@ -185,10 +202,13 @@ export function LiveListPage({ stream }: { stream: IncidentStream }) {
 
 /**
  * The empty state. It must never be a blank screen, so it always offers the way
- * in — and in this slice the control is an explicit placeholder: the chaos fault
- * injection that actually creates the incident arrives with the console.
+ * in — and the way in is the same chaos trigger the console uses: inject a real
+ * fault and let the Monitor find it. The button never posts an incident, so a
+ * click that does nothing visible is a click that was honestly refused.
  */
-function DemoIncidentCta() {
+function DemoIncidentCta({ chaos }: { chaos: ChaosController }) {
+  const busy = chaos.phase === 'injecting' || chaos.phase === 'pending'
+
   return (
     <div className="rounded-lg border border-dashed border-slate-700 bg-slate-900/40 px-5 py-8 text-center">
       <h2 className="text-base font-semibold text-slate-100">No incidents yet</h2>
@@ -199,16 +219,35 @@ function DemoIncidentCta() {
       </p>
       <button
         type="button"
-        disabled
-        title="Placeholder — the chaos fault injection that creates the incident arrives with the console slice"
-        className="mt-4 cursor-not-allowed rounded-md border border-slate-700 bg-slate-800 px-4 py-2 text-sm font-medium text-slate-400"
+        onClick={() => void chaos.inject(DEMO_FAULT, DEMO_DURATION_SECONDS)}
+        disabled={busy}
+        className="mt-4 rounded-md border border-sky-600 bg-sky-600/20 px-4 py-2 text-sm font-medium text-sky-100 transition hover:border-sky-400 hover:bg-sky-600/30 focus:outline-none focus:ring-1 focus:ring-sky-500 disabled:cursor-not-allowed disabled:opacity-50"
       >
-        Generate demo incident
+        {chaos.phase === 'injecting'
+          ? 'Injecting fault…'
+          : chaos.phase === 'pending'
+            ? 'Waiting for the agent…'
+            : 'Generate demo incident'}
       </button>
       <p className="mx-auto mt-3 max-w-xl text-xs text-slate-500">
-        Placeholder — this slice shows the call to action only. It does not post an incident; the
-        next slice wires it to the simulated app&rsquo;s chaos trigger.
+        Injects a real <span className="font-mono">traffic_spike</span> fault into the simulated app
+        for {DEMO_DURATION_SECONDS}s. The Monitor detects it and opens the incident — nothing here
+        posts an incident directly.
       </p>
+
+      {(chaos.phase === 'pending' ||
+        chaos.phase === 'reported' ||
+        chaos.phase === 'undetected') && (
+        <div className="mx-auto mt-4 max-w-xl">
+          <InjectionStatus chaos={chaos} />
+        </div>
+      )}
+
+      {chaos.error && (
+        <div className="mx-auto mt-4 max-w-xl">
+          <ChaosErrorNote error={chaos.error} />
+        </div>
+      )}
     </div>
   )
 }

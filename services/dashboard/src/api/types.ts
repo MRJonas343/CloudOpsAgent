@@ -189,3 +189,22 @@ export interface AppMetrics {
   requests_per_second: number
   replicas: number
 }
+
+/** The two faults the simulated app can inject (`cloudops_app.simulation.FaultMode`). */
+export type FaultMode = 'traffic_spike' | 'unhealthy_application'
+
+/**
+ * `GET /simulate/status`, `POST /simulate/reset`, and `POST /simulate/{mode}`.
+ *
+ * `started_at` and `expires_at` are the app's `time.monotonic()` values, not
+ * wall time, so they carry no clock meaning. The console renders
+ * `remaining_seconds` and `duration_seconds` instead.
+ */
+export interface SimulationStatus {
+  enabled: boolean
+  mode: FaultMode | null
+  started_at: number | null
+  expires_at: number | null
+  remaining_seconds: number | null
+  duration_seconds: number | null
+}

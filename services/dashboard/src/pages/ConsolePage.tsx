@@ -1,25 +1,46 @@
 /**
  * `/console` — the simulated application's status, and the chaos console.
  *
- * This slice renders the read-only half: the app's health and key metrics,
- * polled, so an injected fault is visible as a degraded metric snapshot. The
- * chaos controls themselves (fault injection, the pending-injection state, and
- * honest `403`/`404` surfacing) belong to the console slice and are shown here
- * as a labelled placeholder rather than as buttons that do nothing.
+ * The read half is the app's health and key metrics, polled, so an injected
+ * fault is visible as a degraded snapshot. The control half injects exactly one
+ * real fault and can reset it, both through the app's own `/simulate` routes
+ * over the same origin.
+ *
+ * Nothing on this page creates an incident. It shows the fault it injected and
+ * then waits for the agent to report what it actually detects — see `useChaos`.
  */
 
-import { useEffect } from 'react'
+import { useEffect, useState } from 'react'
 
 import { getAppHealth, getAppMetrics } from '../api/client'
+import type { FaultMode } from '../api/types'
 import { Badge } from '../components/Badges'
+import { ChaosErrorNote, InjectionStatus } from '../components/InjectionStatus'
 import { ErrorNote, Panel } from '../components/Panel'
 import { useApi } from '../hooks/useApi'
-import { formatNumber, formatPercent } from '../lib/format'
+import type { ChaosController } from '../hooks/useChaos'
+import { useCountdown } from '../hooks/useCountdown'
+import { formatCountdown, formatNumber, formatPercent, humanize } from '../lib/format'
 
 /** The app has no push channel for metrics, so the panel polls. */
 const POLL_INTERVAL_MS = 5000
 
-export function ConsolePage() {
+/** Both modes have a detector in the agent; other incident types have none. */
+const FAULT_MODES: readonly FaultMode[] = ['traffic_spike', 'unhealthy_application']
+
+/** Duration presets in seconds; the app clamps requests to its own 1..300 bound. */
+const DURATIONS = [15, 30, 60, 120] as const
+const DEFAULT_DURATION_SECONDS = 30
+
+const INPUT =
+  'rounded-md border border-slate-700 bg-slate-900 px-2.5 py-1.5 text-sm text-slate-200 transition hover:border-slate-500 focus:outline-none focus:ring-1 focus:ring-sky-500 disabled:cursor-not-allowed disabled:opacity-50'
+
+const ACTION = `${INPUT} border-sky-600 bg-sky-600/20 font-medium text-sky-100 hover:border-sky-400 hover:bg-sky-600/30`
+
+export function ConsolePage({ chaos }: { chaos: ChaosController }) {
+  const [duration, setDuration] = useState<number>(DEFAULT_DURATION_SECONDS)
+  const [resetting, setResetting] = useState(false)
+
   const health = useApi(getAppHealth, [])
   const metrics = useApi(getAppMetrics, [])
   const reloadHealth = health.reload
@@ -34,7 +55,22 @@ export function ConsolePage() {
   }, [reloadHealth, reloadMetrics])
 
   const snapshot = metrics.data
-  const appStatus = health.data?.status ?? null
+  const appHealth = health.data?.status ?? null
+
+  const { simulation, simulationError, simulationLoading } = chaos
+  const remaining = useCountdown(simulation?.remaining_seconds)
+  // One fault at a time: while an injection is in flight or waiting on the
+  // agent, the controls rest rather than swapping the fault underneath it.
+  const busy = chaos.phase === 'injecting' || chaos.phase === 'pending'
+
+  const handleReset = async () => {
+    setResetting(true)
+    try {
+      await chaos.reset()
+    } finally {
+      setResetting(false)
+    }
+  }
 
   return (
     <div className="space-y-4">
@@ -57,8 +93,8 @@ export function ConsolePage() {
         <div className="space-y-4">
           <div className="flex flex-wrap items-center gap-2">
             <span className="text-xs tracking-wide text-slate-500 uppercase">Health</span>
-            <HealthBadge status={appStatus} reachable={health.data !== null} />
-            {snapshot?.status && snapshot.status !== 'ok' && (
+            <HealthBadge status={appHealth} reachable={health.data !== null} />
+            {snapshot && snapshot.status !== 'ok' && (
               <span className="text-xs text-slate-500">metrics report {snapshot.status}</span>
             )}
           </div>
@@ -87,34 +123,99 @@ export function ConsolePage() {
         </div>
       </Panel>
 
-      <Panel step={2} title="Chaos console" hint="not in this slice">
+      <Panel step={2} title="Active fault" hint="GET /simulate/status">
+        <div className="space-y-3">
+          {simulationError && (
+            <ErrorNote status={simulationError.status} message={simulationError.message} />
+          )}
+
+          {!simulationError && simulation === null && (
+            <p className="text-sm text-slate-500">
+              {simulationLoading ? 'Reading the simulation status…' : 'No simulation status available.'}
+            </p>
+          )}
+
+          {simulation !== null && simulation.mode === null && (
+            <p className="text-sm text-slate-400">
+              No active fault. The app is reporting baseline health and metrics.
+            </p>
+          )}
+
+          {simulation !== null && simulation.mode !== null && (
+            <div className="space-y-2">
+              <div className="flex flex-wrap items-center gap-2">
+                <Badge tone="amber">{humanize(simulation.mode)}</Badge>
+                <span className="font-mono text-slate-100">
+                  {remaining === null ? '—' : formatCountdown(remaining)}
+                </span>
+                <span className="text-xs text-slate-500">until it auto-expires</span>
+              </div>
+              {/*
+                Only the duration and the countdown are shown. `started_at` and
+                `expires_at` are the app's `time.monotonic()` values, not wall
+                time, so rendering them as clock times would invent a timestamp.
+              */}
+              <p className="text-xs text-slate-500">
+                Injected for {simulation.duration_seconds ?? '—'}s. The app clears the fault on its
+                own when the countdown above reaches zero.
+              </p>
+            </div>
+          )}
+
+          <div className="flex flex-wrap items-center gap-3">
+            <button type="button" className={INPUT} onClick={() => void handleReset()} disabled={resetting}>
+              {resetting ? 'Resetting…' : 'Reset simulation'}
+            </button>
+            <span className="text-xs text-slate-500">
+              Clears the active fault with <span className="font-mono">POST /simulate/reset</span>.
+            </span>
+          </div>
+        </div>
+      </Panel>
+
+      <Panel step={3} title="Chaos console" hint="POST /simulate/{mode}">
         <div className="space-y-3">
           <p className="text-slate-300">
-            Fault injection arrives with the console slice. The controls will call the simulated
-            app&rsquo;s existing simulation routes through this same origin, and this page will show
-            the injected mode until the agent detects it.
+            Inject a real fault into the simulated application. The Monitor detects it from the
+            degraded health and metrics and opens the incident. This page never posts an incident:
+            whatever appears in the live list was found by the agent, not created by the UI.
           </p>
-          <ul className="list-disc space-y-1 pl-5 text-slate-400">
-            <li>
-              Inject a <span className="font-mono text-slate-300">traffic_spike</span> or an{' '}
-              <span className="font-mono text-slate-300">unhealthy_application</span> fault, and
-              reset the app afterwards.
-            </li>
-            <li>
-              Show a pending-injection state until the agent reports the incident, so an operator
-              can see the fault was accepted before it is detected.
-            </li>
-            <li>
-              Surface a refused injection honestly — a <span className="font-mono">403</span> when
-              the simulation controls are disabled, a{' '}
-              <span className="font-mono">404</span> for an unknown mode — with no fabricated
-              incident.
-            </li>
-            <li>Wire the empty-state &ldquo;Generate demo incident&rdquo; call to action to the same trigger.</li>
-          </ul>
-          <p className="text-xs text-slate-500">
-            Nothing on this page injects a fault yet; the status above is read-only.
-          </p>
+
+          <div className="flex flex-wrap items-end gap-2">
+            {FAULT_MODES.map((fault) => (
+              <button
+                key={fault}
+                type="button"
+                className={ACTION}
+                onClick={() => void chaos.inject(fault, duration)}
+                disabled={busy}
+              >
+                {chaos.phase === 'injecting' && chaos.mode === fault
+                  ? 'Injecting…'
+                  : humanize(fault)}
+              </button>
+            ))}
+
+            <label className="flex flex-col gap-1 text-xs text-slate-500">
+              Duration
+              <select
+                className={INPUT}
+                value={duration}
+                onChange={(event) => setDuration(Number(event.target.value))}
+                disabled={busy}
+              >
+                {DURATIONS.map((seconds) => (
+                  <option key={seconds} value={seconds}>
+                    {seconds}s
+                  </option>
+                ))}
+              </select>
+            </label>
+          </div>
+
+          <InjectionStatus chaos={chaos} />
+
+          {chaos.error && <ChaosErrorNote error={chaos.error} />}
         </div>
       </Panel>
     </div>
