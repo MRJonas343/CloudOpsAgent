@@ -20,10 +20,10 @@ loader). Import it directly instead:
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import UTC, datetime
 from enum import StrEnum
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, computed_field
 
 from cloudops_agent.graph.state import ApprovalDecision, VerificationResult
 from cloudops_agent.models.incident import IncidentStatus, Observation
@@ -32,6 +32,20 @@ from cloudops_agent.models.remediation import (
     RemediationPlan,
     RemediationResult,
 )
+
+
+def remaining_seconds(deadline: datetime | None, *, now: datetime | None = None) -> int | None:
+    """Return the whole seconds left before ``deadline``, or ``None`` when unset.
+
+    The value is clamped at zero: an expired deadline reads ``0`` rather than a
+    negative count, so a client rendering a countdown never shows time running
+    backwards. This is the single derivation shared by the approval model and the
+    event bus.
+    """
+    if deadline is None:
+        return None
+    moment = now or datetime.now(UTC)
+    return max(0, int((deadline - moment).total_seconds()))
 
 
 class RunOutcome(StrEnum):
@@ -64,6 +78,10 @@ class ApprovalRequest(BaseModel):
     It mirrors the payload ``human_approval`` hands to ``interrupt()`` (see
     ``design.md`` *Interfaces / Contracts*), so a paused run can be presented to
     an operator without re-running the node.
+
+    ``remaining_seconds`` is derived from ``deadline`` rather than stored, so a
+    client that reads the model twice sees the countdown actually move; the
+    deadline itself is the only thing the runner has to arm.
     """
 
     incident_id: str
@@ -71,6 +89,13 @@ class ApprovalRequest(BaseModel):
     risk_level: int
     parameters: dict[str, object] = Field(default_factory=dict)
     requested_at: datetime
+    deadline: datetime | None = None
+
+    @computed_field
+    @property
+    def remaining_seconds(self) -> int | None:
+        """Seconds left before the approval deadline, or ``None`` when unset."""
+        return remaining_seconds(self.deadline)
 
 
 class RunRecord(BaseModel):

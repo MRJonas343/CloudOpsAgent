@@ -55,6 +55,11 @@ class Settings(BaseSettings):
     traffic_spike_rps_threshold: float = 20.0
     app_request_timeout_seconds: float = 5.0
 
+    # Human approval gate. A run that pauses on ``human_approval`` waits this
+    # long for an operator decision before the sweeper ends it through the
+    # reject path (ADR-007).
+    approval_timeout_seconds: int = 300
+
     # Post-remediation verification thresholds. Verification requires health
     # ``ok``, zero error rate, CPU strictly below ``healthy_cpu_threshold``, p95
     # latency strictly below ``healthy_latency_ms_threshold``, and no error-level

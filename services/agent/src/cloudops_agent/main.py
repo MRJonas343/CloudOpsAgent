@@ -1,8 +1,9 @@
 """FastAPI entrypoint for the agent service.
 
-The monitoring module runs as a background task inside the app.lifespan. When a
-detection cycle stores a new incident (after the existing dedupe), the monitor
-hands it to the run service, which schedules one off-loop graph run per
+Two background tasks run inside the app.lifespan: the monitoring module, and the
+approval sweeper that ends a pause which outlives ``approval_timeout_seconds``.
+When a detection cycle stores a new incident (after the existing dedupe), the
+monitor hands it to the run service, which schedules one off-loop graph run per
 incident. Startup reconciliation resolves anything a previous process left
 non-terminal as failed, because the run record, checkpoint, and pause payload are
 all process-local (ADR-005/ADR-008).
@@ -51,14 +52,15 @@ def create_app(
     @asynccontextmanager
     async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         runner.reconcile_orphans()
-        task: asyncio.Task[None] | None = None
+        tasks: list[asyncio.Task[None]] = [asyncio.create_task(runner.sweeper_forever())]
         if settings.monitoring_enabled:
-            task = asyncio.create_task(monitor.run_forever())
+            tasks.append(asyncio.create_task(monitor.run_forever()))
         try:
             yield
         finally:
-            if task is not None:
+            for task in tasks:
                 task.cancel()
+            for task in tasks:
                 with suppress(asyncio.CancelledError):
                     await task
             await app_client.aclose()

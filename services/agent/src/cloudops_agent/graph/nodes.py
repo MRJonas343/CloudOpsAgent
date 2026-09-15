@@ -6,18 +6,20 @@ evidence through the registered read-only tools. ``plan_remediation`` offers the
 planner the real remediation catalogue, ``execute_remediation`` runs only an
 allowlisted mutating tool through the registry (deny-by-default), and
 ``verify_remediation`` checks the app's real health, metrics, and error logs.
-The human approval gate is still mocked and a later phase replaces it with a
-real operator interrupt.
+``human_approval`` is a real ``interrupt()``: the run parks there until an
+operator decision or the approval timeout resumes it.
 """
 
 from __future__ import annotations
 
 import json
 import logging
+from collections.abc import Mapping
 from datetime import UTC, datetime
 from typing import Any
 
 from langgraph.graph import END
+from langgraph.types import interrupt
 
 from cloudops_agent.config import settings
 from cloudops_agent.graph.agents import (
@@ -339,21 +341,64 @@ def plan_remediation(state: IncidentState) -> dict[str, Any]:
     return {"plan": plan}
 
 
-def human_approval(state: IncidentState) -> dict[str, Any]:
-    """Approval gate.
+def _read_decision(decision: Any) -> tuple[bool, str | None, str | None]:
+    """Normalize a resume payload into ``(approved, approver, reason)``.
 
-    MOCK: auto-approves so the workflow can run unattended. A later phase
-    replaces this with a real ``interrupt()`` that waits for an operator.
+    The operator endpoints send ``{"approved", "approver", "reason"}``, but the
+    resume value is whatever the caller of ``Command(resume=...)`` supplied.
+    Anything that is not an explicit approval is a denial, so a malformed or
+    missing payload can never execute remediation.
     """
+    if not isinstance(decision, Mapping):
+        return False, None, "no operator decision was supplied"
+    approver = decision.get("approver")
+    reason = decision.get("reason")
+    return (
+        decision.get("approved") is True,
+        approver if isinstance(approver, str) else None,
+        reason if isinstance(reason, str) else None,
+    )
+
+
+def human_approval(state: IncidentState) -> dict[str, Any]:
+    """Pause the run and wait for an operator decision (ADR-007).
+
+    Everything above :func:`interrupt` is side-effect free. LangGraph re-runs
+    this node from the top when the run resumes with ``Command(resume=...)``, so
+    anything written, logged, or executed before the interrupt would happen
+    twice. The payload is exactly what an operator needs to decide, and the
+    decision comes back as :func:`interrupt`'s return value.
+
+    The node records the decision only; it never decides whether an action may
+    run. ``execute_remediation`` still enforces the allowlist, so an approval
+    cannot widen what the run is permitted to do.
+    """
+    incident = _incident_of(state)
+    plan = state.get("plan")
+    if plan is None:
+        return {"approval": ApprovalDecision(approved=False, reason="no plan to approve")}
+
+    decision = interrupt(
+        {
+            "incident_id": incident.incident_id,
+            "action": plan.action,
+            "risk_level": int(plan.risk_level),
+            "parameters": plan.parameters,
+        }
+    )
+    approved, approver, reason = _read_decision(decision)
     logger.info(
-        "human_approval MOCK auto-approval incident_id=%s",
-        _incident_of(state).incident_id,
+        "human_approval decision incident_id=%s action=%s approved=%s approver=%s",
+        incident.incident_id,
+        plan.action,
+        approved,
+        approver,
     )
     return {
         "approval": ApprovalDecision(
-            approved=True,
-            approver="mock-operator",
-            reason="mock auto-approval",
+            approved=approved,
+            approver=approver,
+            reason=reason,
             decided_at=_now(),
         )
     }
