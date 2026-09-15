@@ -152,17 +152,6 @@ CloudOpsAgent/
 - [`docs/REFERENCE.md`](docs/REFERENCE.md) — endpoints, tool contracts, verification rules, and
   configuration.
 
-## Roadmap
-
-- **MVP (delivered):** the local `app` + `agent` + `dashboard` flow. Detection starts one workflow
-  run per incident; the graph investigates, diagnoses, and plans; a real `interrupt()` parks the run
-  for human approval, with a timeout sweeper that ends it through the reject path; execution runs
-  only an allowlisted action; verification decides from real evidence; and a post-mortem closes the
-  incident. Two of the five scenarios (`unhealthy_application`, `traffic_spike`) are implemented end
-  to end.
-- **V1:** read-only AWS tools, Terraform infrastructure and `terraform_validate()` /
-  `terraform_plan()` (plan and explanation only, no apply), CloudWatch evidence, IAM hardening.
-- **V2:** durable persistence, the remaining three scenarios, measured evaluation, CI/CD.
 
 Persistence is in-memory for the MVP, and the agent never runs `terraform apply` or
 `terraform destroy`.
