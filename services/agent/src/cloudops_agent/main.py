@@ -15,6 +15,7 @@ from contextlib import asynccontextmanager, suppress
 
 from fastapi import FastAPI
 
+from cloudops_agent.api import events_router
 from cloudops_agent.api import router as incidents_router
 from cloudops_agent.config import Settings
 from cloudops_agent.logging import configure_logging
@@ -71,6 +72,7 @@ def create_app(
     app.state.event_bus = bus
     app.state.run_service = runner
     app.include_router(incidents_router)
+    app.include_router(events_router)
 
     @app.get("/health")
     async def health() -> dict[str, str]:
