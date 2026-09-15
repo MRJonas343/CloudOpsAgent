@@ -1,8 +1,11 @@
 """FastAPI entrypoint for the agent service.
 
-The monitoring module runs as a background task inside the app.lifespan; it
-creates and stores incidents but does not trigger the LangGraph workflow yet
-(that boundary arrives in a later phase).
+The monitoring module runs as a background task inside the app.lifespan. When a
+detection cycle stores a new incident (after the existing dedupe), the monitor
+hands it to the run service, which schedules one off-loop graph run per
+incident. Startup reconciliation resolves anything a previous process left
+non-terminal as failed, because the run record, checkpoint, and pause payload are
+all process-local (ADR-005/ADR-008).
 """
 
 import asyncio
@@ -16,7 +19,10 @@ from cloudops_agent.config import Settings
 from cloudops_agent.logging import configure_logging
 from cloudops_agent.monitoring.app_client import AppClient
 from cloudops_agent.monitoring.monitor import Monitor
+from cloudops_agent.services.event_bus import EventBus
 from cloudops_agent.services.incident_store import IncidentStore
+from cloudops_agent.services.run_service import RunService
+from cloudops_agent.services.run_store import RunStore
 
 
 def create_app(
@@ -24,8 +30,11 @@ def create_app(
     *,
     client: AppClient | None = None,
     store: IncidentStore | None = None,
+    run_store: RunStore | None = None,
+    event_bus: EventBus | None = None,
+    run_service: RunService | None = None,
 ) -> FastAPI:
-    """Build the agent app; ``settings`` and a fake ``client``/``store`` can be injected."""
+    """Build the agent app; ``settings`` and the collaborators can be injected."""
     settings = settings or Settings()
     configure_logging(settings.log_level, service="agent")
 
@@ -34,10 +43,14 @@ def create_app(
         settings.app_base_url,
         timeout=settings.app_request_timeout_seconds,
     )
-    monitor = Monitor(app_client, incident_store, settings)
+    runs = run_store or RunStore()
+    bus = event_bus or EventBus()
+    runner = run_service or RunService(incident_store, runs, bus, settings=settings)
+    monitor = Monitor(app_client, incident_store, settings, on_incident=runner.schedule_run)
 
     @asynccontextmanager
     async def lifespan(app: FastAPI) -> AsyncIterator[None]:
+        runner.reconcile_orphans()
         task: asyncio.Task[None] | None = None
         if settings.monitoring_enabled:
             task = asyncio.create_task(monitor.run_forever())
@@ -52,6 +65,9 @@ def create_app(
 
     app = FastAPI(title="CloudOpsAgent Agent", version="0.2.0", lifespan=lifespan)
     app.state.incident_store = incident_store
+    app.state.run_store = runs
+    app.state.event_bus = bus
+    app.state.run_service = runner
     app.include_router(incidents_router)
 
     @app.get("/health")

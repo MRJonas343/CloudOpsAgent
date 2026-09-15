@@ -22,6 +22,20 @@ class IncidentStore:
         """Return the incident with ``incident_id`` or ``None``."""
         return self._incidents.get(incident_id)
 
+    def set_status(self, incident_id: str, status: IncidentStatus) -> Incident | None:
+        """Write ``status`` through to the stored incident.
+
+        Returns the updated incident, or ``None`` when the id is unknown. This is
+        the run service's write-through: the run record holds the detail and the
+        incident keeps only the lifecycle status that ``find_active`` reads.
+        """
+        incident = self._incidents.get(incident_id)
+        if incident is None:
+            return None
+        updated = incident.model_copy(update={"status": status})
+        self._incidents[incident_id] = updated
+        return updated
+
     def list(self) -> list[Incident]:
         """Return all stored incidents in insertion order."""
         return list(self._incidents.values())

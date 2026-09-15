@@ -30,17 +30,21 @@ class Monitor:
         settings: Settings,
         *,
         clock: Callable[[], datetime] | None = None,
+        on_incident: Callable[[Incident], None] | None = None,
     ) -> None:
         self._client = client
         self._store = store
         self._settings = settings
         self._clock = clock or _utcnow
+        self._on_incident = on_incident
 
     async def poll_once(self) -> Incident | None:
         """Run one cycle; return the newly stored incident or ``None``.
 
-        Transport failures and duplicate active conditions are skipped. The
-        LangGraph trigger is intentionally out of scope for this phase.
+        Transport failures and duplicate active conditions are skipped. A newly
+        stored incident is handed to the optional ``on_incident`` trigger, which
+        is invoked but never awaited: scheduling the run is the callback's job,
+        so the poll loop keeps its one-cycle-at-a-time pace.
         """
         try:
             health = await self._client.check_health()
@@ -64,7 +68,18 @@ class Monitor:
             stored.severity.value,
             stored.correlation_id,
         )
+        self._trigger(stored)
         return stored
+
+    def _trigger(self, incident: Incident) -> None:
+        """Hand ``incident`` to the run trigger without blocking the poll loop."""
+        callback = self._on_incident
+        if callback is None:
+            return
+        try:
+            callback(incident)
+        except Exception:  # noqa: BLE001 - a trigger failure must not stop monitoring
+            logger.exception("incident trigger failed incident_id=%s", incident.incident_id)
 
     async def run_forever(self) -> None:
         """Poll every ``poll_interval_seconds`` until the task is cancelled."""

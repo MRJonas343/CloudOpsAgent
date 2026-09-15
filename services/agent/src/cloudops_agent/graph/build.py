@@ -7,10 +7,17 @@ The graph is the explicit state machine described in ``docs/ARCHITECTURE.md``:
 
 Nodes are mocks for now (see ``cloudops_agent.graph.nodes``); the LLM calls and
 registered tools arrive in later phases.
+
+The graph is compiled with a process-local ``InMemorySaver`` checkpointer
+(ADR-007) so a run can pause and resume, and so the runner can inspect the
+snapshot between steps. The checkpoint is keyed by ``thread_id``, which
+:func:`graph_config` sets to the ``incident_id``: one thread per incident. The
+checkpointer is in-memory, so a restart loses the pause by design (ADR-005).
 """
 
 from __future__ import annotations
 
+from langgraph.checkpoint.memory import InMemorySaver
 from langgraph.graph import END, START, StateGraph
 
 from cloudops_agent.graph.nodes import (
@@ -29,6 +36,9 @@ from cloudops_agent.graph.nodes import (
 )
 from cloudops_agent.graph.state import IncidentState
 from cloudops_agent.models import Incident
+
+#: Process-local checkpoint store. One thread per incident; lost on restart.
+CHECKPOINTER = InMemorySaver()
 
 
 def build_graph():
@@ -69,7 +79,16 @@ def build_graph():
     )
     builder.add_edge("close_incident", END)
 
-    return builder.compile()
+    return builder.compile(checkpointer=CHECKPOINTER)
+
+
+def graph_config(incident_id: str) -> dict[str, dict[str, str]]:
+    """Return the LangGraph config that scopes a run to ``incident_id``.
+
+    ``thread_id`` is the ``incident_id``, so the checkpoint thread and the run
+    record are keyed identically (ADR-007).
+    """
+    return {"configurable": {"thread_id": incident_id}}
 
 
 def initial_state(incident: Incident) -> IncidentState:
