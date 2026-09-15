@@ -1,5 +1,23 @@
 # CloudOpsAgent
 
+
+Image of the architecture (html)
+<img width="1152" height="807" alt="image" src="https://github.com/user-attachments/assets/27b5cf15-3b31-4803-b4a6-d7311ac7fbc7" />
+
+Image of an incident
+<img width="1178" height="960" alt="image" src="https://github.com/user-attachments/assets/8bc6d105-c560-4842-92ca-45b8c6d0d573" />
+
+Image of an inciden (2) with aproval gateway (HIL)
+<img width="1224" height="913" alt="image" src="https://github.com/user-attachments/assets/718d7c8e-acc2-4fa9-a16a-8e4e1447a60d" />
+
+Image of an incident fixed with post morten generated
+<img width="1198" height="991" alt="image" src="https://github.com/user-attachments/assets/c531da9e-ae64-4e35-aea2-5d1db6fe4378" />
+
+
+Image of the caos console
+<img width="1177" height="801" alt="image" src="https://github.com/user-attachments/assets/23e9f519-a54f-4b99-b7ba-cd0249f04008" />
+
+
 A safe, auditable incident-response control plane for simulated applications today and AWS-backed operations later. An operational signal becomes evidence, a diagnosis, an approved remediation plan, and a verified result without giving an LLM unrestricted authority.
 
 > **Status:** the full incident lifecycle is implemented across three services. `app` is the simulated target (health, metrics, orders, and bounded fault simulations). `agent` polls `app`, detects incidents, and drives a deterministic LangGraph workflow — detection → investigation → diagnosis → plan → human approval → guarded execution → real verification → post-mortem — over a typed incident API and a live event stream. `dashboard` is a Vite + React console that renders the live incident list, the per-incident case file, and a chaos console that injects real faults. See [`docs/IMPLEMENTATION_PLAN.md`](docs/IMPLEMENTATION_PLAN.md).
