@@ -48,7 +48,7 @@ Three services cooperate, all defined in `docker-compose.yml`:
 - **`dashboard`** — a React console served by nginx. It renders the incident list, the per-incident
   case file, and a chaos console that injects real faults into `app`.
 
-<img width="1152" height="807" alt="CloudOpsAgent architecture" src="https://github.com/user-attachments/assets/27b5cf15-3b31-4803-b4a6-d7311ac7fbc7" />
+<img width="5200" height="2284" alt="cloudopsagent-incident-response-control-plane" src="https://github.com/user-attachments/assets/fe47111e-c046-45ba-ac07-0f90b1b16337" />
 *The architecture: the dashboard and the agent share one incident API and event stream, and the workflow reaches the simulated app only through the registered tool boundary.*
 
 The flow: the simulated app degrades on command, the agent polls it, detects the change, and runs a
