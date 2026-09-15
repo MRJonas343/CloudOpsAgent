@@ -36,3 +36,6 @@ Thumbs.db
 
 # LangGraph CLI local state
 .langgraph_api/
+
+# architecture visual-check artefacts (regenerable evidence, not source)
+docs/architecture/*.visual-check.*
