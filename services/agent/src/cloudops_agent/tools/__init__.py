@@ -37,20 +37,27 @@ __all__ = [
 def get_tool_registry(settings: Settings | None = None) -> ToolRegistry:
     """Return the cached default registry of read-only and mutating app tools.
 
-    Caching is keyed by the two settings that shape the tools (base URL and
-    request timeout), so repeated calls with the same configuration reuse one
-    registry.
+    Caching is keyed by the settings that shape the tools (base URL, request
+    timeout, and replica baseline), so repeated calls with the same configuration
+    reuse one registry.
     """
     effective = settings or Settings()
-    return _build_registry(effective.app_base_url, effective.app_request_timeout_seconds)
+    return _build_registry(
+        effective.app_base_url,
+        effective.app_request_timeout_seconds,
+        effective.baseline_replicas,
+    )
 
 
 @lru_cache(maxsize=8)
-def _build_registry(base_url: str, timeout_seconds: float) -> ToolRegistry:
-    """Build and cache a registry for one (base URL, timeout) pair."""
+def _build_registry(
+    base_url: str, timeout_seconds: float, baseline_replicas: int
+) -> ToolRegistry:
+    """Build and cache a registry for one (base URL, timeout, baseline) triple."""
     tool_settings = Settings(
         app_base_url=base_url,
         app_request_timeout_seconds=timeout_seconds,
+        baseline_replicas=baseline_replicas,
     )
     registry = ToolRegistry()
     for tool in build_app_tools(tool_settings):

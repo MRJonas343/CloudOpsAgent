@@ -73,6 +73,12 @@ class RunStore:
             record.outcome = RunOutcome.interrupted_restart
             record.updated_at = moment
             record.completed_at = moment
+            if record.summary is None:
+                record.summary = (
+                    f"Incident {record.incident_id} ended failed: the agent "
+                    "restarted while the run was in flight, so the run could not "
+                    "be resumed and needs manual handling."
+                )
             record.timeline.append(
                 TimelineEvent(phase=record.phase, status=IncidentStatus.failed, at=moment)
             )

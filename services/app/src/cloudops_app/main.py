@@ -42,12 +42,15 @@ class RequestCounters:
     error_count: int = 0
 
 
-#: Operator-only control routes that must never appear in the consultable store.
-_CONTROL_ROUTE_PREFIXES = ("/simulate",)
+#: Control routes whose request line must never appear in the consultable store.
+#: ``/simulate/*`` are operator-only, and ``/restart`` is a recovery action whose
+#: request must not leak into agent-visible logs; each route records only what it
+#: chooses to (``/restart`` writes a single neutral info entry).
+_CONTROL_ROUTE_PREFIXES = ("/simulate", "/restart")
 
 
 def _is_control_route(path: str) -> bool:
-    """Return ``True`` for operator-only control routes (never agent-visible)."""
+    """Return ``True`` for control routes excluded from the request log."""
     return any(
         path == prefix or path.startswith(f"{prefix}/") for prefix in _CONTROL_ROUTE_PREFIXES
     )
@@ -201,6 +204,23 @@ def create_app(
             )
         replicas = clamped
         logs.record("info", f"replica count set to {replicas}")
+        return build_scale_state()
+
+    @app.post("/restart", response_model=ScaleState)
+    async def restart_service() -> ScaleState:
+        """Restart the service, returning it to its baseline state.
+
+        Recovery is a process-memory effect: a restart clears the active failure
+        and the consultable log buffer, and returns the replica count to the
+        configured baseline, so health and metrics recover. The route is excluded
+        from the request log (see ``_is_control_route``); the only trace left for
+        the agent is the neutral entry written here.
+        """
+        nonlocal replicas
+        controller.reset()
+        replicas = max(settings.min_replicas, min(settings.baseline_replicas, settings.max_replicas))
+        logs.clear()
+        logs.record("info", "service restarted")
         return build_scale_state()
 
     @app.get("/api/orders", response_model=list[Order])

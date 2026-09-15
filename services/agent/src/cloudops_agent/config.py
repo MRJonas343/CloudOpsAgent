@@ -55,6 +55,12 @@ class Settings(BaseSettings):
     traffic_spike_rps_threshold: float = 20.0
     app_request_timeout_seconds: float = 5.0
 
+    # Replica baseline the app starts from and returns to on restart. The
+    # mutating ``scale_service`` tool refuses to scale below it, and the
+    # remediation catalogue states the same floor to the planner. Keep this in
+    # step with the app's ``APP_BASELINE_REPLICAS``.
+    baseline_replicas: int = 2
+
     # Human approval gate. A run that pauses on ``human_approval`` waits this
     # long for an operator decision before the sweeper ends it through the
     # reject path (ADR-007).

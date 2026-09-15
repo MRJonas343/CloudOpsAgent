@@ -37,7 +37,7 @@ Docker Compose defines exactly **two** services. Monitoring is an internal modul
 
 | Service | Responsibility | Interface |
 |---|---|---|
-| `app` | Simulated Python application (FastAPI) with controlled fault/load behavior | `GET /health`, `GET /metrics`, `GET /api/orders`, `POST /api/orders`, `POST /simulate/{mode}`, `POST /simulate/reset`, `GET /simulate/status` |
+| `app` | Simulated Python application (FastAPI) with controlled fault/load behavior | `GET /health`, `GET /metrics`, `GET /api/orders`, `POST /api/orders`, `POST /scale`, `POST /restart`, `POST /simulate/{mode}`, `POST /simulate/reset`, `GET /simulate/status` |
 | `agent` | FastAPI service containing the monitoring module (polls `app` over HTTP), the typed incident API, and LangGraph orchestration | `GET /health`, `POST /incidents`, `GET /incidents/{id}` |
 
 The `agent` service polls `app` and exposes the incident API; the graph and registered read-only tools arrive in later phases. See [Simulated application](#simulated-application) for the `app` contracts.
@@ -56,6 +56,7 @@ The `app` service is a deterministic target for monitoring and demos. Every `/me
 | `POST /api/orders` | Body `{"item": "string", "quantity": 1}`; returns the created order with an `id`; `503` while unhealthy |
 | `GET /scale` | Current replica count and the configured bounds |
 | `POST /scale` | Body `{"replicas": 4}`; clamps to `[APP_MIN_REPLICAS, APP_MAX_REPLICAS]` and returns the new state |
+| `POST /restart` | Restart the service: clears the active fault and the log buffer, resets replicas to `APP_BASELINE_REPLICAS`, and returns the new scale state |
 | `GET /simulate/status` | Active mode, timestamps, remaining seconds, and the enabled flag |
 | `POST /simulate/{mode}` | Activate a fault; optional body `{"duration_seconds": 30}` |
 | `POST /simulate/reset` | Clear any active fault (does **not** reset the replica count) |
@@ -66,7 +67,7 @@ MVP fault modes: `traffic_spike` (`requests_per_second=30.0`, `latency_ms_p95=18
 
 Simulation controls are bounded and local-only. Durations are clamped to `[1, APP_SIMULATION_MAX_DURATION_SECONDS]` (default `APP_SIMULATION_DEFAULT_DURATION_SECONDS`), faults auto-expire, and every `/simulate/*` call returns `403` when `APP_SIMULATION_ENABLED=false`.
 
-Scaling is a normal simulated capability, not a fault, so it survives `/simulate/reset`. It is deterministic: CPU and latency fall as `baseline/replicas` while achievable throughput rises as `replicas/baseline`, so scaling up from the baseline visibly reduces CPU/latency (including under `traffic_spike`).
+Scaling is a normal simulated capability, not a fault, so it survives `/simulate/reset`. It is deterministic: CPU and latency fall as `baseline/replicas` while achievable throughput rises as `replicas/baseline`, so scaling up from the baseline visibly reduces CPU/latency (including under `traffic_spike`). A restart (`POST /restart`) is the recovery path: it clears the active fault and the log buffer and returns the replica count to the baseline.
 
 ```bash
 curl http://localhost:8001/metrics
@@ -77,6 +78,7 @@ curl http://localhost:8001/metrics          # cpu/latency lower, replicas=4
 curl http://localhost:8001/logs?limit=5
 curl http://localhost:8001/errors?limit=5
 curl -X POST http://localhost:8001/simulate/reset
+curl -X POST http://localhost:8001/restart    # clears the fault/log buffer, replicas back to baseline
 ```
 
 ### Seeding logs for manual testing
@@ -139,9 +141,10 @@ Registered read-only tools (Risk 0), all backed by the `app` HTTP API:
 
 | Tool | Risk | Action | Parameters |
 |---|---|---|---|
-| `scale_service` | 2 (infrastructure_change) | `POST /scale` on the `app` | `replicas: int`, `1 <= replicas <= 10`, no other keys |
+| `restart_service` | 2 (infrastructure_change) | `POST /restart` on the `app` | none |
+| `scale_service` | 2 (infrastructure_change) | `POST /scale` on the `app` | `replicas: int`, `baseline <= replicas <= 10`, no other keys |
 
-`scale_service` is the only mutating tool. It is registered alongside the read-only tools, so a plan can only run it if the action name matches the registry key. Its `PlanDraft` parameters arrive as strings (the planner's `parameters` map is `dict[str, str]`), and the input model coerces `"4"` to `4` and rejects out-of-range or unexpected values at the boundary.
+These are the only mutating tools. They are registered alongside the read-only tools, so a plan can only run one if the action name matches a registry key. `restart_service` recovers an unhealthy service (the fault lives in process memory, so a restart clears it); `scale_service` adds capacity and refuses to scale below `AGENT_BASELINE_REPLICAS`, so an incident can never reduce capacity. Their `PlanDraft` parameters arrive as strings (the planner's `parameters` list), and each input model coerces `"4"` to `4` and rejects out-of-range or unexpected values at the boundary before any HTTP call.
 
 **Catalogue.** `ToolRegistry.remediation_catalogue()` renders the registered non-read-only actions — name, description, risk, and the exact parameter names and bounds from each tool's input schema. `plan_remediation` injects this catalogue into the planner prompt and requires `action` to be exactly one of those names with parameters matching the declared ranges, so the model can only propose actions that exist.
 

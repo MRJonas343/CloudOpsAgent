@@ -92,6 +92,26 @@ def _now() -> datetime:
     return datetime.now(UTC)
 
 
+def _append_timeline(
+    record: RunRecord, phase: str, status: IncidentStatus, at: datetime
+) -> None:
+    """Append a timeline event unless it exactly repeats the previous one.
+
+    A run can reach the same ``(phase, status)`` twice in a row: the approval
+    gate records the decision transition itself and the resumed
+    ``human_approval`` node then yields an update that carries no status change,
+    which previously produced a third, duplicate "Human approval" row. Collapsing
+    consecutive duplicates keeps every real transition visible exactly once while
+    preserving genuinely distinct steps (``awaiting_approval`` still appears
+    before ``remediating``).
+    """
+    if record.timeline:
+        last = record.timeline[-1]
+        if last.phase == phase and last.status is status:
+            return
+    record.timeline.append(TimelineEvent(phase=phase, status=status, at=at))
+
+
 def _pending_interrupts(snapshot: Any) -> tuple[Any, ...]:
     """Return the interrupts a graph snapshot is parked on, if any.
 
@@ -357,9 +377,7 @@ class RunService:
         )
         record.approval_deadline = deadline
         record.updated_at = moment
-        record.timeline.append(
-            TimelineEvent(phase=APPROVAL_NODE, status=record.status, at=moment)
-        )
+        _append_timeline(record, APPROVAL_NODE, record.status, moment)
         self._write_through(incident_id, record.status)
         self._publish(incident_id, record)
         logger.info(
@@ -424,9 +442,7 @@ class RunService:
         if record.approval_request is not None:
             record.approval_request.deadline = None
         record.updated_at = moment
-        record.timeline.append(
-            TimelineEvent(phase=APPROVAL_NODE, status=record.status, at=moment)
-        )
+        _append_timeline(record, APPROVAL_NODE, record.status, moment)
         self._write_through(incident_id, record.status)
 
     # -- loop-thread mutations (the single writer) -----------------------------
@@ -448,9 +464,7 @@ class RunService:
             if status is not None:
                 record.status = status
             record.updated_at = _now()
-            record.timeline.append(
-                TimelineEvent(phase=node, status=record.status, at=record.updated_at)
-            )
+            _append_timeline(record, node, record.status, record.updated_at)
             if changed:
                 self._write_through(incident_id, record.status)
             self._publish(incident_id, record)
@@ -500,9 +514,12 @@ class RunService:
         record.outcome = outcome
         record.updated_at = moment
         record.completed_at = moment
-        record.timeline.append(
-            TimelineEvent(phase=record.phase, status=record.status, at=moment)
-        )
+        if record.summary is None and outcome is not RunOutcome.resolved:
+            # ``close_incident`` is the only node that writes a summary, so a run
+            # that ended any other way would report no post-mortem at all. Compose
+            # one from the evidence already on the record; no model call is made.
+            record.summary = self._post_mortem(record, error)
+        _append_timeline(record, record.phase, record.status, moment)
         self._write_through(incident_id, record.status)
         self._publish(incident_id, record)
         logger.info(
@@ -512,6 +529,47 @@ class RunService:
             outcome.value,
             record.attempts,
         )
+
+    def _post_mortem(self, record: RunRecord, error: str | None) -> str:
+        """Compose the closing summary for a run that did not resolve.
+
+        The summary is derived entirely from the record's own evidence — the
+        verification problems or the exhausted attempt budget, the operator's
+        rejection, or the captured error — so a failed incident is readable
+        without another model call (spec: *Post-Mortem From Graph Summary*).
+        """
+        incident = self._incidents.get(record.incident_id)
+        kind = incident.type.value if incident is not None else "incident"
+        action = record.plan.action if record.plan is not None else "the plan"
+        prefix = f"Incident {record.incident_id} ({kind}) ended failed"
+
+        if record.outcome is RunOutcome.verification_failed:
+            evidence = (
+                record.verification.summary
+                if record.verification is not None
+                else "verification did not pass"
+            )
+            return (
+                f"{prefix} after {record.attempts} attempt(s): {evidence}. "
+                "The remediation never restored healthy metrics and logs, so the "
+                "incident needs manual handling."
+            )
+        if record.outcome is RunOutcome.rejected:
+            reason = record.approval.reason if record.approval is not None else None
+            detail = f" (reason: {reason})" if reason else ""
+            return (
+                f"{prefix}: the operator rejected '{action}'{detail}, so no "
+                "remediation was executed."
+            )
+        if record.outcome is RunOutcome.timed_out:
+            return (
+                f"{prefix}: no operator decision arrived before the approval "
+                f"deadline, so '{action}' was not executed."
+            )
+        if record.outcome is RunOutcome.error:
+            detail = f": {error}" if error else "while it was running"
+            return f"{prefix} because the run raised an error{detail}."
+        return f"{prefix}."
 
     # -- store and bus writes --------------------------------------------------
 

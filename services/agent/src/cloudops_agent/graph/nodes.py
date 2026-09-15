@@ -304,10 +304,10 @@ def plan_remediation(state: IncidentState) -> dict[str, Any]:
         "Propose exactly one bounded remediation plan. The 'action' field MUST be "
         "exactly one of the action names listed above, and 'parameters' MUST "
         "contain every parameter that action declares, using the exact names and "
-        "types shown in the catalogue. For example, if the chosen action declares "
-        "'replicas: integer (min 1, max 10)', set parameters to "
-        '{"replicas": "4"} with a value inside that range. Do not invent actions, '
-        "parameters, or values outside the stated ranges."
+        "types shown in the catalogue, with values inside the bounds it states. "
+        "For example, a parameter declared as 'replicas: integer (min N, max M)' "
+        'is set as {"replicas": "4"} with a value between N and M. Do not invent '
+        "actions, parameters, or values outside the stated ranges."
     )
     agent = get_agent("planner", response_format=PlanDraft)
     result = agent.invoke({"messages": [{"role": "user", "content": prompt}]})
