@@ -486,14 +486,63 @@ def execute_remediation(state: IncidentState) -> dict[str, Any]:
     }
 
 
+def _as_utc(moment: datetime) -> datetime:
+    """Return ``moment`` as an aware UTC datetime, reading a naive value as UTC."""
+    if moment.tzinfo is None:
+        return moment.replace(tzinfo=UTC)
+    return moment.astimezone(UTC)
+
+
+def _log_entry_time(entry: Any) -> datetime | None:
+    """Return a log entry's timestamp as an aware UTC datetime, or ``None``.
+
+    The app stamps every entry with an ISO-8601 instant. ``None`` means the
+    instant could not be read, which is deliberately *not* the same as "before
+    the run": the caller must never treat undatable evidence as absent.
+    """
+    if not isinstance(entry, Mapping):
+        return None
+    raw = entry.get("timestamp")
+    if not isinstance(raw, str):
+        return None
+    try:
+        return _as_utc(datetime.fromisoformat(raw))
+    except ValueError:
+        return None
+
+
+def _count_errors_since(entries: Any, since: datetime) -> int:
+    """Count error entries the app logged at or after ``since``.
+
+    Verification asks whether the application is unhealthy *now*, so an error
+    that predates the current run is history rather than evidence about this
+    remediation: an earlier fault's log entries must not fail a later, correctly
+    remediated run. The check is not weakened — a response with no readable
+    entries, or an entry whose timestamp cannot be read, still counts, so
+    unreadable or undatable evidence is never silently discarded.
+    """
+    if not isinstance(entries, list):
+        raise ValueError("error log response carried no entries")
+    window_start = _as_utc(since)
+    counted = 0
+    for entry in entries:
+        logged_at = _log_entry_time(entry)
+        if logged_at is None or logged_at >= window_start:
+            counted += 1
+    return counted
+
+
 def verify_remediation(state: IncidentState) -> dict[str, Any]:
     """Check real metrics, health, and logs after the action.
 
     Verification is deterministic and evidence-based: it is true only when the
     app reports health ``ok``, ``error_rate == 0``, CPU strictly below
     ``settings.healthy_cpu_threshold``, p95 latency strictly below
-    ``settings.healthy_latency_ms_threshold``, and no error-level log entries. A
-    failed read leaves its check false, so missing evidence is never verified.
+    ``settings.healthy_latency_ms_threshold``, and no error-level log entries
+    logged since this run began. Errors from an earlier incident are history,
+    not evidence about this remediation, so they cannot fail the run — but a
+    service that is still degraded keeps logging, and those entries do fail it.
+    A failed read leaves its check false, so missing evidence is never verified.
     """
     incident = _incident_of(state)
     logger.info("verify incident_id=%s", incident.incident_id)
@@ -534,10 +583,10 @@ def verify_remediation(state: IncidentState) -> dict[str, Any]:
     logs_ok = False
     try:
         errors = registry.invoke("get_recent_errors", limit=_LOG_LIMIT)
-        error_count = int(errors.get("count", 0) or 0)
+        error_count = _count_errors_since(errors.get("entries"), incident.detected_at)
         logs_ok = error_count == 0
         if not logs_ok:
-            problems.append(f"{error_count} error-level log entries present")
+            problems.append(f"{error_count} error-level log entries since the run began")
     except Exception as exc:  # noqa: BLE001 - failure means incomplete evidence
         problems.append(f"error log check failed: {exc}")
 
@@ -545,7 +594,7 @@ def verify_remediation(state: IncidentState) -> dict[str, Any]:
     if verified:
         summary = (
             "verification passed: health ok, metrics within healthy thresholds, "
-            "no error-level logs"
+            "no error-level logs since the run began"
         )
     else:
         summary = "verification failed: " + "; ".join(problems)

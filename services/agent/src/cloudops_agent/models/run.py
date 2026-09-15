@@ -81,7 +81,10 @@ class ApprovalRequest(BaseModel):
 
     ``remaining_seconds`` is derived from ``deadline`` rather than stored, so a
     client that reads the model twice sees the countdown actually move; the
-    deadline itself is the only thing the runner has to arm.
+    deadline itself is the only thing the runner has to arm. The runner clears
+    that deadline the moment a decision is claimed, so a decided run reports a
+    stable ``None`` instead of a countdown that keeps advancing on a finished
+    incident.
     """
 
     incident_id: str

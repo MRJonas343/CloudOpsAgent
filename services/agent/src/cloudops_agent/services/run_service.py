@@ -407,8 +407,11 @@ class RunService:
         """Take the decision: leave ``awaiting_approval`` before resuming.
 
         Mutating the record synchronously is what makes the operator and the
-        sweeper mutually exclusive, and the deadline is cleared so a decided run
-        stops advertising a countdown.
+        sweeper mutually exclusive. Both deadlines are cleared here — the run's
+        ``approval_deadline`` and the one inside the approval request it was
+        built from — so a decided run stops advertising a countdown and a
+        terminal report reads the same on every poll instead of ticking down
+        forever on a finished incident.
         """
         record = self._runs.get(incident_id)
         if record is None:
@@ -418,6 +421,8 @@ class RunService:
             IncidentStatus.remediating if approved else IncidentStatus.failed
         )
         record.approval_deadline = None
+        if record.approval_request is not None:
+            record.approval_request.deadline = None
         record.updated_at = moment
         record.timeline.append(
             TimelineEvent(phase=APPROVAL_NODE, status=record.status, at=moment)
