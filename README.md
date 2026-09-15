@@ -2,7 +2,7 @@
 
 A safe, auditable incident-response control plane for simulated applications today and AWS-backed operations later. An operational signal becomes evidence, a diagnosis, an approved remediation plan, and a verified result without giving an LLM unrestricted authority.
 
-> **Status:** the `app` service implements Phase 2 (health, metrics, orders, and bounded fault simulations). The `agent` service implements Phase 4: it polls `app` over HTTP, detects the two MVP incidents, stores typed incident payloads in memory, and exposes the typed incident API. The AWS Bedrock model connection is wired and viewable in LangGraph Studio; the deterministic LangGraph workflow is the next phase. See [`docs/IMPLEMENTATION_PLAN.md`](docs/IMPLEMENTATION_PLAN.md).
+> **Status:** the full incident lifecycle is implemented across three services. `app` is the simulated target (health, metrics, orders, and bounded fault simulations). `agent` polls `app`, detects incidents, and drives a deterministic LangGraph workflow — detection → investigation → diagnosis → plan → human approval → guarded execution → real verification → post-mortem — over a typed incident API and a live event stream. `dashboard` is a Vite + React console that renders the live incident list, the per-incident case file, and a chaos console that injects real faults. See [`docs/IMPLEMENTATION_PLAN.md`](docs/IMPLEMENTATION_PLAN.md).
 
 ## Quick start
 
@@ -13,9 +13,9 @@ uv sync --directory services/app && uv sync --directory services/agent   # sync 
 python scripts/setup_local.py   # start the topology (docker compose up; add -d for detached)
 ```
 
-`docker compose up -d` starts the same topology in detached mode if you prefer to run Compose directly.
+`docker compose up -d` starts the same topology in detached mode if you prefer to run Compose directly. The build includes all three services, including the dashboard.
 
-Verify both services:
+Verify the topology:
 
 ```bash
 curl http://localhost:8001/health   # {"status":"ok","service":"app"}
@@ -23,24 +23,27 @@ curl http://localhost:8001/metrics  # deterministic metric snapshot
 curl http://localhost:8000/health   # {"status":"ok","service":"agent"}
 ```
 
+Then open the dashboard at <http://localhost:3000> to watch incidents as they are detected and remediated.
+
 Stop the topology:
 
 ```bash
 docker compose down
 ```
 
-Copy `.env.example` to `.env` to override ports, log level, polling interval, or the LLM provider placeholder. Never put real secrets in `.env`; it is git-ignored.
+Copy `.env.example` to `.env` to override ports, log level, polling interval, approval timeout, or the LLM provider placeholder. `DASHBOARD_PORT` moves the dashboard's published host port only; nginx always listens on `3000` inside the container. Never put real secrets in `.env`; it is git-ignored.
 
 ## Service topology
 
-Docker Compose defines exactly **two** services. Monitoring is an internal module of the `agent` service, not a separate container.
+Docker Compose defines **three** services. Monitoring is an internal module of the `agent` service, not a separate container.
 
 | Service | Responsibility | Interface |
 |---|---|---|
 | `app` | Simulated Python application (FastAPI) with controlled fault/load behavior | `GET /health`, `GET /metrics`, `GET /api/orders`, `POST /api/orders`, `POST /scale`, `POST /restart`, `POST /simulate/{mode}`, `POST /simulate/reset`, `GET /simulate/status` |
-| `agent` | FastAPI service containing the monitoring module (polls `app` over HTTP), the typed incident API, and LangGraph orchestration | `GET /health`, `POST /incidents`, `GET /incidents/{id}` |
+| `agent` | FastAPI service containing the monitoring module (polls `app` over HTTP), the deterministic incident workflow, and the typed incident API | `GET /health`, `POST /incidents`, `GET /incidents`, `GET /incidents/{id}`, `GET /incidents/{id}/report`, `POST /incidents/{id}/approve`, `POST /incidents/{id}/reject`, `GET /events` |
+| `dashboard` | nginx-served Vite + React console that reads the incident API and injects real faults | `GET /` (SPA), `GET /healthz`, `/api/agent/*` → `agent:8000`, `/api/app/*` → `app:8001` |
 
-The `agent` service polls `app` and exposes the incident API; the graph and registered read-only tools arrive in later phases. See [Simulated application](#simulated-application) for the `app` contracts.
+The `agent` service polls `app`, schedules one workflow run per detected incident, and exposes the incident API and event stream; the graph reaches the outside world only through the registered tool boundary described below. See [Simulated application](#simulated-application) for the `app` contracts and [Dashboard](#dashboard) for the console.
 
 ## Simulated application
 
@@ -93,7 +96,7 @@ APP_BASE_URL=http://localhost:8001 python scripts/seed_logs.py
 
 ## Monitoring module
 
-The monitoring module is internal to the `agent` service (not a separate container). Every `AGENT_POLL_INTERVAL_SECONDS` (default `10`) it polls `app` `GET /health` and `GET /metrics` via HTTP, applies deterministic rules, and stores a typed `Incident` (`INC-0001`, `INC-0002`, ...) in memory. It only creates and logs incidents; it does not trigger the LangGraph workflow yet.
+The monitoring module is internal to the `agent` service (not a separate container). Every `AGENT_POLL_INTERVAL_SECONDS` (default `10`) it polls `app` `GET /health` and `GET /metrics` via HTTP, applies deterministic rules, and stores a typed `Incident` (`INC-0001`, `INC-0002`, ...) in memory. A newly stored incident starts the workflow: the monitor hands it to the run service, which schedules one off-loop graph run for it, so the poll loop is never blocked by graph execution.
 
 | Detector | Rule | Severity |
 |---|---|---|
@@ -104,23 +107,70 @@ The unhealthy condition takes precedence when both could fire. Baseline metrics 
 
 ## Incident API
 
-The `agent` exposes the typed incident contract over HTTP, backed by the same in-memory store the monitoring module writes to, so monitor-created incidents are retrievable here.
+The `agent` exposes the typed incident contract over HTTP, backed by the same in-memory stores the monitoring module and run service write to, so monitor-created incidents and their run detail are retrievable here.
 
 | Endpoint | Behavior |
 |---|---|
 | `POST /incidents` | Validate and store an incident; the store assigns the sequential `INC-####` id; returns `201` with the stored incident |
+| `GET /incidents` | List stored incidents newest-first; optional `status` and `type` filters, each typed to its enum so an invalid value returns `422` |
 | `GET /incidents/{id}` | Return the stored incident, or `404` with a clear detail when the id is unknown |
+| `GET /incidents/{id}/report` | Return the full case file (ADR-008): the incident, the run record (timeline, observations, hypotheses, diagnosis, plan, approval, execution, verification, and the post-mortem `summary`), and the live approval countdown. Partially filled while a run is in flight; `404` only when both stores lack the id |
+| `POST /incidents/{id}/approve` | Resume the paused run with body `{"approver": "...", "reason": "..."}`; `404` when the incident is unknown and `409` when its run is not `awaiting_approval` |
+| `POST /incidents/{id}/reject` | Same contract as approve, ending the run without executing anything |
+| `GET /events` | Server-sent events (`text/event-stream`): one frame per incident lifecycle change, replay-free |
 | `GET /health` | `200 {"status":"ok","service":"agent"}` |
 
 Request body: `service` (required, non-empty), `type`, `severity`, optional `status` (default `detected`), `detected_at` (defaults to the current UTC time), `observations` (default `[]`), `source` (default `api`), and `correlation_id` (defaults to a generated hex id). Invalid enum values, missing or empty `service`, and malformed payloads return `422`.
 
+The event stream is deliberately replay-free: the bus keeps no history and its frame ids are process-local, so a reconnecting client refetches state over REST (`GET /incidents`, `GET /incidents/{id}/report`) instead of replaying what it missed. Each frame carries the incident id, type, severity, status, phase, timestamp, and the approval countdown when one is armed.
+
 ```bash
 curl -X POST http://localhost:8000/incidents -H 'content-type: application/json' \
   -d '{"service":"app","type":"unhealthy_application","severity":"high"}'
+curl http://localhost:8000/incidents
 curl http://localhost:8000/incidents/INC-0001
+curl http://localhost:8000/incidents/INC-0001/report
+curl -N http://localhost:8000/events
 ```
 
 The API is unauthenticated and in-memory only; authentication and durable persistence are explicitly out of scope for the MVP.
+
+## Dashboard
+
+The dashboard is the third Compose service and the project's most visible surface: a live view of the incident lifecycle on top of the same API and event stream.
+
+| Property | Value |
+|---|---|
+| Stack | Vite + React + TypeScript + Tailwind CSS |
+| Serving | nginx on container port `3000`, published on host `${DASHBOARD_PORT:-3000}` |
+| Network | `cloudops`, alongside `agent` and `app` |
+| Source | `services/dashboard/src/` |
+
+**Why nginx.** The container serves the built SPA and reverse-proxies `/api/agent` → `agent:8000` and `/api/app` → `app:8001`, so the browser only ever talks to one origin and no service needs CORS. The event-stream location disables proxy buffering (`proxy_buffering off`, `X-Accel-Buffering: no`); this is required, because with buffering on nginx holds the response until the connection closes and the live updates arrive as one lump instead of frame by frame (ADR-006).
+
+### Routes
+
+| Route | What it shows |
+|---|---|
+| `/` | Live incident list with status and type filters. One REST read for the initial list, then updates over the shared SSE stream, so a new incident appears without a reload |
+| `/incidents/:id` | The case file. One read of `GET /incidents/{id}/report`, refreshed on each frame for that incident: the phase timeline, evidence, hypotheses, diagnosis, plan with its risk, the approval gate with a live countdown and Approve/Reject, execution, verification, and the post-mortem |
+| `/console` | Application status — health and key metrics, polled every 5s — plus the chaos console |
+
+### Chaos console
+
+The console injects faults through the app's own `POST /simulate/{mode}`, reached via the `/api/app` proxy. It never posts an incident: the Monitor detects the degraded app and opens the incident, so whatever appears in the live list was found by the agent, not created by the UI. It shows a pending state until the agent reports the new incident, and surfaces the honest `403` the app returns when `APP_SIMULATION_ENABLED=false`. Only `traffic_spike` and `unhealthy_application` have detectors, so those are the modes offered; inject one fault at a time.
+
+### In-app notifications
+
+Toast notifications fire on exactly four lifecycle events: incident detected, awaiting approval, resolved, and failed. The intermediate phases stay silent, and a repeated frame does not raise a second toast.
+
+### Demo walkthrough
+
+1. Open <http://localhost:3000>.
+2. If the list is empty, use the "Generate demo incident" call to action (it injects a real `traffic_spike`), or open `/console` and inject `traffic_spike` yourself. The console reports the fault as pending until the agent finds it.
+3. Wait up to ~10s for the next poll; the incident appears in the list without a reload.
+4. Open it and follow the case file. When the run pauses at the approval gate, Approve.
+5. Watch it move through execution and verification to `resolved`. An `unhealthy_application` incident resolves through `restart_service`; a `traffic_spike` resolves through `scale_service`.
 
 ## Tool layer
 
@@ -137,32 +187,34 @@ Registered read-only tools (Risk 0), all backed by the `app` HTTP API:
 
 `collect_context` calls these tools and turns the results into `Observation` evidence.
 
-### Guarded mutating tool
+### Guarded mutating tools
 
 | Tool | Risk | Action | Parameters |
 |---|---|---|---|
 | `restart_service` | 2 (infrastructure_change) | `POST /restart` on the `app` | none |
 | `scale_service` | 2 (infrastructure_change) | `POST /scale` on the `app` | `replicas: int`, `baseline <= replicas <= 10`, no other keys |
 
-These are the only mutating tools. They are registered alongside the read-only tools, so a plan can only run one if the action name matches a registry key. `restart_service` recovers an unhealthy service (the fault lives in process memory, so a restart clears it); `scale_service` adds capacity and refuses to scale below `AGENT_BASELINE_REPLICAS`, so an incident can never reduce capacity. Their `PlanDraft` parameters arrive as strings (the planner's `parameters` list), and each input model coerces `"4"` to `4` and rejects out-of-range or unexpected values at the boundary before any HTTP call.
+These are the only mutating tools. They are registered alongside the read-only tools, so a plan can only run one if the action name matches a registry key. `restart_service` recovers an unhealthy service (the fault lives in process memory, so a restart clears it); `scale_service` adds capacity and refuses to scale below `AGENT_BASELINE_REPLICAS`, so an incident can never reduce capacity. Keep `AGENT_BASELINE_REPLICAS` in step with the app's `APP_BASELINE_REPLICAS`: the agent's floor is what the planner is shown and what the tool enforces, while the app's baseline is what it starts from and returns to. Their `PlanDraft` parameters arrive as strings (the planner's `parameters` list), and each input model coerces `"4"` to `4` and rejects out-of-range or unexpected values at the boundary before any HTTP call.
 
 **Catalogue.** `ToolRegistry.remediation_catalogue()` renders the registered non-read-only actions — name, description, risk, and the exact parameter names and bounds from each tool's input schema. `plan_remediation` injects this catalogue into the planner prompt and requires `action` to be exactly one of those names with parameters matching the declared ranges, so the model can only propose actions that exist.
 
 **Deny by default.** `execute_remediation` reads `state["plan"]` and, if the plan is missing or its action is not a registered mutating tool, executes nothing and returns a failed `RemediationResult` with an allowlist error (the node never raises). Otherwise it invokes the tool through the registry and builds the result from the real outcome: `succeeded` with the tool's output, or `failed` with the captured error. Every allow/deny decision is logged with the action and risk.
 
-**Verification decides from real evidence.** `verify_remediation` re-reads the app through the read-only tools and marks the incident verified only when all of these hold: health is `ok`; `error_rate == 0`; `cpu_percent` is strictly below `AGENT_HEALTHY_CPU_THRESHOLD` (default `70.0`); `latency_ms_p95` is strictly below `AGENT_HEALTHY_LATENCY_MS_THRESHOLD` (default `150.0`); and there are no error-level log entries. A failed tool call leaves its check false, so incomplete evidence is never verified. `attempts` increments only on failure, sending the workflow back to investigation. The thresholds are set against the deterministic fixtures: a `traffic_spike` at the 2-replica baseline is CPU 78 / latency 180 (fails), while the same spike scaled to 4 replicas is CPU 39 / latency 90 (passes).
+**Verification decides from real evidence.** `verify_remediation` re-reads the app through the read-only tools and marks the incident verified only when all of these hold: health is `ok`; `error_rate == 0`; `cpu_percent` is strictly below `AGENT_HEALTHY_CPU_THRESHOLD` (default `70.0`); `latency_ms_p95` is strictly below `AGENT_HEALTHY_LATENCY_MS_THRESHOLD` (default `150.0`); and there are no error-level log entries logged since the run began (the incident's detection time), so a previous fault's history cannot fail a later healthy run. A failed tool call leaves its check false, so incomplete evidence is never verified. `attempts` increments only on failure, sending the workflow back to investigation. The thresholds are set against the deterministic fixtures: a `traffic_spike` at the 2-replica baseline is CPU 78 / latency 180 (fails), while the same spike scaled to 4 replicas is CPU 39 / latency 90 (passes).
 
 
 ## Model connection (AWS Bedrock)
 
-The agent talks to a model through a single module: `cloudops_agent.graph.model.connection`. It builds a `ChatBedrockConverse` client for **Claude Sonnet 4.5** and exposes a minimal `create_agent` graph. The deterministic incident workflow is built on top of `get_model()` in the next phase.
+The agent talks to a model through a single module: `cloudops_agent.graph.model.connection`. It builds a `ChatBedrockConverse` client for **Claude Sonnet 4.5** and exposes a minimal `create_agent` graph used as a one-shot connectivity check. The incident workflow's investigation, diagnosis, and planning nodes build their agents on top of `get_model()` through `cloudops_agent.graph.agents` (`build_agent` / `get_agent`), which reads each agent's prompt from `agents.yaml`.
 
 ```text
 services/agent/
 ├── langgraph.json               # LangGraph CLI / Studio configuration
-└── src/cloudops_agent/graph/model/
-    ├── __init__.py
-    └── connection.py            # get_model(), get_agent(), `agent` entry point
+└── src/cloudops_agent/graph/
+    ├── agents/                  # agents.yaml + build_agent / get_agent
+    └── model/
+        ├── __init__.py
+        └── connection.py        # get_model(), get_agent(), `agent` entry point
 ```
 
 Configuration comes from the environment (`AWS_REGION`, `AWS_BEARER_TOKEN_BEDROCK`) plus `AGENT_BEDROCK_MODEL_ID` (default `us.anthropic.claude-sonnet-4-5-20250929-v1:0`). Claude Sonnet 4.5 is only served through cross-region inference profiles, so keep the `us.` prefix (use `global.` for worldwide routing). The bearer token is optional; when it is empty, boto3 falls back to the standard AWS credential chain.
@@ -195,7 +247,7 @@ On Windows, export `PYTHONIOENCODING=utf-8` before running the LangGraph CLI so 
 
 ```text
 CloudOpsAgent/
-├── docker-compose.yml           # 2-service topology with health checks
+├── docker-compose.yml           # 3-service topology with health checks
 ├── .env.example                 # safe, non-secret configuration template
 ├── docs/
 │   ├── PROJECT_CONTEXT.md       # north star, contracts, roadmap
@@ -203,18 +255,21 @@ CloudOpsAgent/
 │   ├── ARCHITECTURE.md          # boundaries, graph, tool boundary
 │   ├── SECURITY_AND_OPERATIONS.md
 │   ├── SCENARIOS.md             # reproducible incident catalog
-│   ├── decisions/               # ADR-001..ADR-005 + index
+│   ├── decisions/               # ADR-001..ADR-008 + index
 │   ├── architecture/            # placeholder
 │   ├── incidents/               # placeholder
 │   └── security/                # placeholder
 ├── infrastructure/terraform/    # future V1 work, plan-only (no apply)
 ├── scenarios/                   # scenario catalog notes
-├── scripts/                     # future demo/CLI scripts
+├── scripts/                     # local setup and seeding scripts
 └── services/
-    ├── app/                     # cloudops-app
-    └── agent/                   # cloudops-agent
-        ├── langgraph.json       # LangGraph CLI / Studio configuration
-        └── src/cloudops_agent/
+    ├── app/                     # cloudops-app (simulated target)
+    ├── agent/                   # cloudops-agent (monitoring, workflow, API)
+    │   ├── langgraph.json       # LangGraph CLI / Studio configuration
+    │   └── src/cloudops_agent/
+    └── dashboard/               # cloudops-dashboard (nginx-served React console)
+        ├── nginx.conf           # SPA fallback + same-origin /api proxy
+        └── src/
 ```
 
 ## Linting
@@ -235,13 +290,12 @@ uv run --directory services/agent ruff format .
 
 ## Roadmap
 
-- **Phase 4 (this state):** internal monitoring module in `agent` polls `app`, detects `unhealthy_application` and `traffic_spike`, stores typed incidents in memory, and exposes `POST /incidents` and `GET /incidents/{id}`.
-- **Model connection:** AWS Bedrock `ChatBedrockConverse` for Claude Sonnet 4.5, exposed through `langgraph dev`; the deterministic workflow is next.
-- **MVP:** local `app` + `agent` flow, monitoring detection, typed incident API, deterministic LangGraph skeleton, human approval, first safe local remediation, verification loop, 2 scenarios.
+- **MVP (delivered):** the local `app` + `agent` + `dashboard` flow. Monitoring detection starts one workflow run per incident; the deterministic LangGraph workflow investigates, diagnoses, and plans; a real `interrupt()` parks the run for a human approval decision and a timeout sweeper ends it through the reject path (ADR-007); execution runs only an allowlisted mutating tool; verification decides from real evidence; and a post-mortem closes the incident. All of it is exposed over the typed incident API and a live SSE stream. Two of the five scenarios (`unhealthy_application`, `traffic_spike`) are implemented end to end.
+- **Model connection:** AWS Bedrock `ChatBedrockConverse` for Claude Sonnet 4.5, used by the workflow's investigation, diagnosis, and planning agents and viewable through `langgraph dev`.
 - **V1:** read-only AWS tools, Terraform infrastructure and `terraform_validate()`/`terraform_plan()` (plan + explanation only, no apply), CloudWatch evidence, IAM hardening.
 - **V2:** SQLite persistence, the remaining 3 scenarios, measured evaluation, CI/CD.
 
-Persistence is in-memory for V1. The agent never executes `terraform apply` or `terraform destroy`.
+Persistence is in-memory for the MVP. The agent never executes `terraform apply` or `terraform destroy`.
 
 ## License
 
