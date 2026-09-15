@@ -33,9 +33,7 @@ class Settings(BaseSettings):
     app_base_url: str = "http://app:8001"
     poll_interval_seconds: int = 10
 
-    # LLM provider. The client lives in cloudops_agent.graph.model.connection so
-    # the provider can be swapped without touching the workflow.
-    llm_provider: str = "aws-bedrock"
+    # AWS Bedrock model. The client lives in cloudops_agent.graph.model.connection.
     bedrock_model_id: str = Field(
         default="us.anthropic.claude-sonnet-4-5-20250929-v1:0",
         validation_alias=AliasChoices("AGENT_BEDROCK_MODEL_ID", "BEDROCK_MODEL_ID"),

@@ -54,7 +54,7 @@ CloudOpsAgent control plane <----> Local simulated Python application
 | Service | Owns | Does not own |
 |---|---|---|
 | `app` (Python FastAPI) | Simulated orders, health, metrics, bounded fault/load controls | Diagnosis, AWS access, approval, monitoring |
-| `agent` (FastAPI) | Monitoring module (HTTP polling), typed incident API, LangGraph workflow, tool orchestration, approval state, LLM client (Azure Foundry, abstracted) | Unregistered shell commands, hidden mutations, credential minting, terraform apply/destroy |
+| `agent` (FastAPI) | Monitoring module (HTTP polling), typed incident API, LangGraph workflow, tool orchestration, approval state, LLM client (AWS Bedrock, abstracted) | Unregistered shell commands, hidden mutations, credential minting, terraform apply/destroy |
 
 ### Simulated Application (Python)
 

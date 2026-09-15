@@ -20,7 +20,7 @@ Analyze -> Collect Context -> Investigate -> Diagnose -> Plan -> Human Approval 
 - Nodes call only registered tools through a policy/guardrail check. The graph cannot invoke arbitrary Python, shell, AWS SDK calls, network requests, or Terraform commands.
 - Every tool declares name, purpose, input schema, output schema, risk classification, timeout, allowlist, credential scope, and audit mapping.
 - Read-only tools exist before any mutating tool.
-- The LLM client is abstracted behind an interface (Azure Foundry primary; swappable to OpenAI, Anthropic, or others). Reasoning is stored as concise evidence and decisions, never fabricated chain-of-thought.
+- The LLM client is abstracted behind an interface (AWS Bedrock primary; swappable to OpenAI, Anthropic, or others). Reasoning is stored as concise evidence and decisions, never fabricated chain-of-thought.
 
 ## Consequences
 

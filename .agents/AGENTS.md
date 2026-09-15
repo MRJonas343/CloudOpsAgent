@@ -41,7 +41,7 @@ The canonical order is the exact 01-27 sequence in [`docs/IMPLEMENTATION_PLAN.md
 - Terraform access is limited to registered `terraform_validate()` and `terraform_plan()` tools (read-only); arbitrary Terraform commands are forbidden.
 - The Terraform workflow is: `terraform_validate()` -> `terraform_plan()` -> agent explains the plan to the user.
 - No service may silently broaden another service's responsibility or credential scope.
-- The LLM client must be abstracted behind an interface. Primary provider is Azure Foundry; the abstraction allows swapping to OpenAI, Anthropic, or other providers.
+- The LLM client must be abstracted behind an interface. Primary provider is AWS Bedrock (Claude Sonnet 4.5 via cross-region inference profiles); the abstraction allows swapping to OpenAI, Anthropic, or other providers.
 - V1 persistence is in-memory only (no database). V2 adds SQLite for incident persistence. Logs go to stdout/files via structured logging.
 
 ## Safety, IAM, and Approval

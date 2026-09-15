@@ -1,6 +1,6 @@
 # ADR-001: Service Boundaries and Local Compose Topology
 
-- **Status:** Accepted
+- **Status:** Accepted — Amended by [ADR-006](ADR-006-third-service-dashboard-transport.md)
 - **Date:** 2026-09-12
 
 ## Context

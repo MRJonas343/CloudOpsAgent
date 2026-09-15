@@ -45,7 +45,7 @@ The first Docker Compose topology contains exactly two services:
 | Service | Responsibility | Initial interface |
 |---|---|---|
 | `app` | Simulated Python application (FastAPI) with controlled fault/load behavior | `/health`, `/metrics`, `/api/orders`, simulation controls |
-| `agent` | FastAPI service containing: monitoring module (polls app via HTTP), typed incident API, LangGraph orchestration, LLM client (Azure Foundry, abstracted) | `POST /incidents`, `GET /incidents/{id}`, `GET /health` |
+| `agent` | FastAPI service containing: monitoring module (polls app via HTTP), typed incident API, LangGraph orchestration, LLM client (AWS Bedrock, abstracted) | `POST /incidents`, `GET /incidents/{id}`, `GET /health` |
 
 ### AWS Evolution
 
@@ -60,7 +60,7 @@ Local services remain the deterministic development and demonstration surface. A
 | Monitoring | Internal module inside the agent service; polls app `/health` and `/metrics` via HTTP |
 | Agent API | FastAPI with typed Pydantic request, state, and result models |
 | Orchestration | LangGraph skeleton with deterministic nodes and explicit state transitions |
-| LLM Provider | Azure Foundry (primary); abstracted behind an interface for swapping to OpenAI, Anthropic, or other providers |
+| LLM Provider | AWS Bedrock (Claude Sonnet 4.5 via cross-region inference profiles); abstracted behind an interface for swapping to OpenAI, Anthropic, or other providers |
 | Cloud boundary | Explicit read-only AWS tools first; mutations later through guarded tools |
 | Infrastructure | Terraform definitions for VPC, EC2, IAM, CloudWatch, and security groups; plan + explanation only (no apply) |
 | Observability | Structured logging with correlation IDs; no OpenTelemetry |
