@@ -140,22 +140,6 @@ CloudOpsAgent/
     └── dashboard/            # React console served by nginx
 ```
 
-## Learn more
-
-- [`docs/PROJECT_CONTEXT.md`](docs/PROJECT_CONTEXT.md) — vision, contracts, roadmap levels.
-- [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) — service and tool boundaries.
-- [`docs/SCENARIOS.md`](docs/SCENARIOS.md) — reproducible incident scenarios.
-- [`docs/SECURITY_AND_OPERATIONS.md`](docs/SECURITY_AND_OPERATIONS.md) — safety and control model.
-- [`docs/decisions/README.md`](docs/decisions/README.md) — ADR index.
-- [`docs/architecture/cloudopsagent-architecture.html`](docs/architecture/cloudopsagent-architecture.html)
-  — the committed architecture diagram.
-- [`docs/REFERENCE.md`](docs/REFERENCE.md) — endpoints, tool contracts, verification rules, and
-  configuration.
-
-
-Persistence is in-memory for the MVP, and the agent never runs `terraform apply` or
-`terraform destroy`.
-
 ## License
 
 [MIT](LICENSE) © 2026 Jonas
